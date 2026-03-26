@@ -12,6 +12,8 @@ const NAV_ITEMS = [
 
 export const Navbar = () => {
   const location = useLocation();
+  const { user } = useAuth();
+  const initial = user?.email?.[0]?.toUpperCase() || 'U';
   
   return (
     <>
