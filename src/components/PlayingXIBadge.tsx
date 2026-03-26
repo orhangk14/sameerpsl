@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import { Check, X, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -6,7 +7,7 @@ interface PlayingXIBadgeProps {
   size?: 'sm' | 'md';
 }
 
-export const PlayingXIBadge = ({ isPlaying, size = 'sm' }: PlayingXIBadgeProps) => {
+export const PlayingXIBadge = forwardRef<HTMLDivElement, PlayingXIBadgeProps>(({ isPlaying, size = 'sm' }, ref) => {
   const iconSize = size === 'sm' ? 'w-3.5 h-3.5' : 'w-4 h-4';
 
   if (isPlaying === true) {
@@ -28,9 +29,11 @@ export const PlayingXIBadge = ({ isPlaying, size = 'sm' }: PlayingXIBadgeProps) 
   }
 
   return (
-    <div className={cn("flex items-center gap-1", size === 'md' && "px-2 py-0.5 rounded-full bg-muted")}>
+    <div ref={ref} className={cn("flex items-center gap-1", size === 'md' && "px-2 py-0.5 rounded-full bg-muted")}>
       <Minus className={cn(iconSize, "text-muted-foreground")} />
       {size === 'md' && <span className="text-[10px] text-muted-foreground font-display font-semibold">TBA</span>}
     </div>
   );
-};
+});
+
+PlayingXIBadge.displayName = 'PlayingXIBadge';
