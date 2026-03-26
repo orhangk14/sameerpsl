@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/Layout';
 import { MatchCard } from '@/components/MatchCard';
+import { MatchCardCompact } from '@/components/MatchCardCompact';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -106,13 +107,11 @@ const Index = () => {
                   </div>
                 )}
                 {later.length > 0 && (
-                  <div className="space-y-3">
+                  <div className="space-y-1.5">
                     <h2 className="font-display font-bold text-sm text-muted-foreground">Coming Up Later</h2>
-                    <div className="opacity-80 space-y-3">
-                      {later.map(match => (
-                        <MatchCard key={match.id} match={match} />
-                      ))}
-                    </div>
+                    {later.map(match => (
+                      <MatchCardCompact key={match.id} match={match} />
+                    ))}
                   </div>
                 )}
                 {next48h.length === 0 && later.length === 0 && (
