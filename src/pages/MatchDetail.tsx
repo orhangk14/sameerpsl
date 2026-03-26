@@ -59,7 +59,7 @@ const MatchDetail = () => {
     queryFn: async () => {
       const { data, error } = await supabase.from('matches').select('*').eq('id', id!).single();
       if (error) throw error;
-      return data;
+      return data as typeof data & { lock_time?: string };
     },
   });
 
