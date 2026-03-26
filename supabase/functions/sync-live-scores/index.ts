@@ -42,8 +42,7 @@ Deno.serve(async (req) => {
 
       try {
         // Fetch match info
-        const data = await fetchViaDb(
-          supabase,
+        const data = await apiFetch(
           `${CRICAPI_BASE}/match_info?apikey=${encodeURIComponent(CRICAPI_KEY)}&id=${extId}`
         );
         if (data.status !== "success" || !data.data) continue;
@@ -103,8 +102,7 @@ async function updatePlayingXI(
   matchId: string
 ) {
   try {
-    const data = await fetchViaDb(
-      supabase,
+    const data = await apiFetch(
       `${CRICAPI_BASE}/match_squad?apikey=${encodeURIComponent(apiKey)}&id=${externalMatchId}`
     );
     if (data.status !== "success" || !data.data) return;
@@ -149,8 +147,7 @@ async function updatePlayerStats(
   externalMatchId: string
 ) {
   try {
-    const scData = await fetchViaDb(
-      supabase,
+    const scData = await apiFetch(
       `${CRICAPI_BASE}/match_scorecard?apikey=${encodeURIComponent(apiKey)}&id=${externalMatchId}`
     );
     if (scData.status !== "success" || !scData.data?.scorecard) return;
@@ -218,10 +215,10 @@ async function updatePlayerStats(
   }
 }
 
-async function fetchViaDb(supabase: ReturnType<typeof createClient>, url: string): Promise<any> {
-  const { data, error } = await supabase.rpc("http_get_json", { target_url: url });
-  if (error) throw new Error(`Database HTTP fetch failed: ${error.message}`);
-  return data as any;
+async function apiFetch(url: string): Promise<any> {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`API returned ${resp.status}`);
+  return resp.json();
 }
 
 function calculateBattingPoints(bat: any): number {
