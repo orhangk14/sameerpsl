@@ -33,6 +33,7 @@ const Leaderboard = () => {
     return () => { supabase.removeChannel(channel); };
   }, [queryClient, selectedMatch]);
 
+  const { data: matches = [] } = useQuery({
     queryKey: ['leaderboard-matches'],
     queryFn: async () => {
       const { data, error } = await supabase
