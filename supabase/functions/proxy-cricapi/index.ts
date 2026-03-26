@@ -15,6 +15,10 @@ Deno.serve(async (req) => {
     const CRICAPI_KEY = Deno.env.get("CRICAPI_KEY");
     if (!CRICAPI_KEY) throw new Error("CRICAPI_KEY not configured");
 
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
     const { endpoint, params } = await req.json();
     if (!endpoint) throw new Error("Missing endpoint parameter");
 
@@ -26,8 +30,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    const resp = await fetch(url.toString());
-    const data = await resp.json();
+    // Use database http extension which has different network path
+    const { data, error } = await supabase.rpc("http_get_json", {
+      target_url: url.toString(),
+    });
+
+    if (error) throw new Error(`DB HTTP fetch failed: ${error.message}`);
 
     return new Response(JSON.stringify(data), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
