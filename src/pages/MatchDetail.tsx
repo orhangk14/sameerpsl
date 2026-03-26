@@ -371,7 +371,14 @@ const MatchDetail = () => {
     return allPlayers.filter(p => p.role === roleFilter);
   }, [allPlayers, roleFilter]);
 
-  const selectedPlayers = useMemo(() => allPlayers.filter(p => selected.has(p.id)), [allPlayers, selected]);
+  // For live/completed matches with existing teams, always use DB players to avoid ID mismatch
+  const selectedPlayers = useMemo(() => {
+    if (isLiveOrCompleted && existingTeam && dbPlayers.length > 0) {
+      const teamPlayerIds = new Set(existingTeam.team_players?.map((tp: any) => tp.player_id) || []);
+      return dbPlayers.filter(p => teamPlayerIds.has(p.id));
+    }
+    return allPlayers.filter(p => selected.has(p.id));
+  }, [allPlayers, selected, dbPlayers, existingTeam, isLiveOrCompleted]);
   const usedCredits = selectedPlayers.reduce((sum, p) => sum + Number(p.credits), 0);
   const remainingCredits = BUDGET - usedCredits;
 

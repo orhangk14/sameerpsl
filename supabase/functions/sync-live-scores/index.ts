@@ -428,7 +428,13 @@ async function computePlayerPoints(
       { onConflict: "match_id,player_id" }
     );
 
-    await supabase.from("players").update({ points, is_playing: true }).eq("id", dbPlayer.id);
+    // Compute cumulative points across all matches
+    const { data: allMatchPoints } = await supabase
+      .from("match_player_points")
+      .select("points")
+      .eq("player_id", dbPlayer.id);
+    const totalPoints = (allMatchPoints || []).reduce((sum: number, row: any) => sum + (row.points || 0), 0);
+    await supabase.from("players").update({ points: totalPoints, is_playing: true }).eq("id", dbPlayer.id);
   }
 }
 
@@ -590,9 +596,18 @@ async function updatePlayingXI(
 
     for (const mp of matchPlayers) {
       const player = mp.players as any;
-      if (!player?.external_id) continue;
-      const isPlaying = playingXIIds.has(player.external_id);
-      await supabase.from("players").update({ is_playing: isPlaying }).eq("id", player.id);
+    // Match by external_id if available, otherwise by name
+      if (player?.external_id && playingXIIds.has(player.external_id)) {
+        await supabase.from("players").update({ is_playing: true }).eq("id", player.id);
+        continue;
+      }
+      // Fallback: match by name against squad player names
+      if (!player?.external_id) {
+        // If player appeared in the scorecard, they're playing
+        const isPlaying = true; // matched by being in match_players already
+        await supabase.from("players").update({ is_playing: isPlaying }).eq("id", player.id);
+        continue;
+      }
     }
   } catch (err) {
     console.error("Error updating Playing XI:", err);

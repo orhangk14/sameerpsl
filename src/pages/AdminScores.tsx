@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Shield, Save, RefreshCw } from 'lucide-react';
 
-const ADMIN_EMAILS = ['admin@psl.com', 'sameer@psl.com']; // Add your admin emails here
+const ADMIN_EMAILS = ['admin@psl.com', 'sameer@psl.com'];
 
 interface MatchRow {
   id: string;
@@ -70,7 +70,6 @@ export default function AdminScores() {
     setCricbuzzId(match.cricbuzz_match_id || '');
     setEspnId(match.espn_match_id || '');
 
-    // Load players for this match
     const { data: matchPlayers } = await supabase
       .from('match_players')
       .select('player_id, players(id, name)')
@@ -99,39 +98,29 @@ export default function AdminScores() {
     setSaving(true);
 
     try {
-      // Update match scores and external IDs
-      await supabase
-        .from('matches')
-        .update({
+      // Call edge function with service role (server-side) instead of direct DB update
+      const { data, error } = await supabase.functions.invoke('admin-update-scores', {
+        body: {
+          match_id: selectedMatch,
           team_a_score: teamAScore || null,
           team_b_score: teamBScore || null,
           status: matchStatus,
           cricbuzz_match_id: cricbuzzId || null,
           espn_match_id: espnId || null,
-        })
-        .eq('id', selectedMatch);
-
-      // Upsert player points
-      for (const pp of playerPoints) {
-        await supabase.from('match_player_points').upsert(
-          {
-            match_id: selectedMatch,
+          player_points: playerPoints.map(pp => ({
             player_id: pp.player_id,
             points: pp.points,
-            data_source: 'manual',
-          },
-          { onConflict: 'match_id,player_id' }
-        );
-      }
+          })),
+        },
+      });
 
-      // Trigger points recalculation via edge function
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-      await supabase.functions.invoke('sync-live-scores');
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
       toast.success('Scores saved and points recalculated!');
       loadMatches();
-    } catch (err) {
-      toast.error('Failed to save scores');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save scores');
       console.error(err);
     } finally {
       setSaving(false);
@@ -168,7 +157,6 @@ export default function AdminScores() {
           <h1 className="text-2xl font-display font-bold text-foreground">Admin: Manual Score Entry</h1>
         </div>
 
-        {/* Match Selector */}
         <Card className="p-4 bg-card border-border space-y-4">
           <Label className="text-foreground">Select Match</Label>
           <Select value={selectedMatch} onValueChange={setSelectedMatch}>
@@ -188,59 +176,35 @@ export default function AdminScores() {
 
         {selectedMatch && selectedMatchData && (
           <>
-            {/* External IDs */}
             <Card className="p-4 bg-card border-border space-y-4">
               <h2 className="font-display font-semibold text-foreground">External Match IDs</h2>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-muted-foreground">Cricbuzz Match ID</Label>
-                  <Input
-                    value={cricbuzzId}
-                    onChange={e => setCricbuzzId(e.target.value)}
-                    placeholder="e.g. 91715"
-                    className="bg-muted border-border text-foreground"
-                  />
+                  <Input value={cricbuzzId} onChange={e => setCricbuzzId(e.target.value)} placeholder="e.g. 91715" className="bg-muted border-border text-foreground" />
                 </div>
                 <div>
                   <Label className="text-muted-foreground">ESPN Match ID</Label>
-                  <Input
-                    value={espnId}
-                    onChange={e => setEspnId(e.target.value)}
-                    placeholder="e.g. 1384420"
-                    className="bg-muted border-border text-foreground"
-                  />
+                  <Input value={espnId} onChange={e => setEspnId(e.target.value)} placeholder="e.g. 1384420" className="bg-muted border-border text-foreground" />
                 </div>
               </div>
             </Card>
 
-            {/* Match Scores */}
             <Card className="p-4 bg-card border-border space-y-4">
               <h2 className="font-display font-semibold text-foreground">Match Scores</h2>
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label className="text-muted-foreground">{selectedMatchData.team_a} Score</Label>
-                  <Input
-                    value={teamAScore}
-                    onChange={e => setTeamAScore(e.target.value)}
-                    placeholder="185/4 (20.0)"
-                    className="bg-muted border-border text-foreground"
-                  />
+                  <Input value={teamAScore} onChange={e => setTeamAScore(e.target.value)} placeholder="185/4 (20.0)" className="bg-muted border-border text-foreground" />
                 </div>
                 <div>
                   <Label className="text-muted-foreground">{selectedMatchData.team_b} Score</Label>
-                  <Input
-                    value={teamBScore}
-                    onChange={e => setTeamBScore(e.target.value)}
-                    placeholder="170/8 (20.0)"
-                    className="bg-muted border-border text-foreground"
-                  />
+                  <Input value={teamBScore} onChange={e => setTeamBScore(e.target.value)} placeholder="170/8 (20.0)" className="bg-muted border-border text-foreground" />
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Status</Label>
                   <Select value={matchStatus} onValueChange={setMatchStatus}>
-                    <SelectTrigger className="bg-muted border-border text-foreground">
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger className="bg-muted border-border text-foreground"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="upcoming">Upcoming</SelectItem>
                       <SelectItem value="live">Live</SelectItem>
@@ -251,7 +215,6 @@ export default function AdminScores() {
               </div>
             </Card>
 
-            {/* Player Points */}
             {playerPoints.length > 0 && (
               <Card className="p-4 bg-card border-border space-y-4">
                 <h2 className="font-display font-semibold text-foreground">Player Fantasy Points</h2>
@@ -281,13 +244,8 @@ export default function AdminScores() {
               </Card>
             )}
 
-            {/* Save Button */}
             <div className="flex gap-3">
-              <Button
-                onClick={saveMatchScores}
-                disabled={saving}
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
-              >
+              <Button onClick={saveMatchScores} disabled={saving} className="bg-primary text-primary-foreground hover:bg-primary/90">
                 {saving ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                 {saving ? 'Saving...' : 'Save & Recalculate Points'}
               </Button>
