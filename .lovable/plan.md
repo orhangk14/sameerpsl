@@ -1,43 +1,62 @@
 
 
-## Plan: Fix Signup for All Users + Deduplicate Profiles + Unique Username Constraint
+## Plan: Fix Scrolling, Match Grouping, Logos, Players & Live Scores
 
-### Problems
-1. **Google login uses `lovable.auth`** which only works within Lovable's environment — external users on the published site can't use it
-2. **Duplicate profiles** exist for the same username ("sameerahmed" appears 3 times, "sameer" once)
-3. **No unique constraint on username** — anyone can pick an already-taken username
+### Problems Found
+1. **Scroll cutoff**: Layout uses `pt-18` which isn't a standard Tailwind class — content gets hidden behind the fixed navbar. No `ScrollToTop` component exists.
+2. **No match grouping**: All upcoming matches shown in a flat list. Need "Next 48 Hours" vs "Later" sections.
+3. **Team logos not visible**: Wikipedia URLs are blocked by hotlink protection. Also missing logos for new teams: Hyderabad Kingsmen (HK), Rawalpindi Pindiz (RP).
+4. **0 players in database**: The `players` table is completely empty — `sync-players` edge function likely failed silently due to the same CricAPI connectivity issue. Players and their images can't show if they don't exist.
+5. **Live score display is minimal**: Just shows score text, no visual emphasis or real-time feel.
 
 ### Changes
 
-#### 1. Remove Duplicate Profiles (Data cleanup)
-- Delete the 3 duplicate profile rows (keep only the one tied to `user_id: 1a5fc270-eac9-42bc-89e3-1cb677b5b06a` which is the active session)
-- Use the insert tool (DELETE statement) to remove rows with `user_id` in `(d05428eb-..., 44c07cad-..., 5f6cdbdf-...)`
+#### 1. Fix Scroll Issues
+- **`Layout.tsx`**: Change `pt-18` to `pt-16` (valid Tailwind, matches h-14 navbar + gap)
+- **New `ScrollToTop.tsx`**: Create component that scrolls to top on route change
+- **`App.tsx`**: Add `ScrollToTop` inside `BrowserRouter`
 
-#### 2. Add Unique Constraint on Username (Migration)
-- `ALTER TABLE profiles ADD CONSTRAINT profiles_username_unique UNIQUE (username);`
-- This prevents duplicate usernames at the database level
+#### 2. Group Upcoming Matches (Index.tsx)
+- Split "Upcoming" tab into two sections:
+  - **"Next 48 Hours"** — matches within the next 2 days, shown prominently
+  - **"Coming Up Later"** — remaining upcoming matches, slightly muted
+- Use `date-fns` `isWithinInterval` / `addDays` for the split
 
-#### 3. Add Username Availability Check on Signup (Auth.tsx)
-- Before calling `supabase.auth.signUp`, query `profiles` table to check if the username is already taken
-- Show an error toast if username exists
-- Add a debounced check that shows inline feedback as the user types
+#### 3. Fix Team Logos (TeamLogo.tsx)
+- Replace Wikipedia URLs with reliable `i.imgur.com` or `cricapi` image URLs that aren't hotlink-blocked
+- Add entries for **HK** (Hyderabad Kingsmen) and **RP** (Rawalpindi Pindiz) with brand colors
+- Add proper `onError` fallback that shows the colored abbreviation circle when image fails
 
-#### 4. Fix Google Login for External Users (Auth.tsx)
-- The `lovable.auth.signInWithOAuth('google')` only works inside the Lovable preview environment
-- Replace with standard `supabase.auth.signInWithOAuth({ provider: 'google' })` which works for everyone on the published URL
-- This requires Google OAuth to be configured in the backend (it already is via Lovable Cloud)
+#### 4. Fix Player Sync — Client-Side Fallback
+Since the edge function can't reach CricAPI (connection reset), add a **client-side proxy approach**:
+- **New edge function `proxy-cricapi`**: A thin proxy that the browser calls with the CricAPI endpoint path. The function fetches from CricAPI and returns the data. This may work better than the cron-triggered version since the edge function infrastructure may have intermittent connectivity.
+- **Update `sync-players`**: Add a fallback mode where if CricAPI is unreachable, the function accepts player data in the request body (posted from the client after the client fetches via proxy).
+- **`MatchDetail.tsx`**: If players are empty after auto-sync attempt, try fetching squad data client-side via the proxy and posting it to `sync-players`.
 
-#### 5. Enable Auto-Confirm for Email Signups
-- Currently users must verify email before signing in, which can be a barrier
-- Use `configure_auth` to enable auto-confirm so users can sign in immediately after signup
-- **Note:** Will only do this if available; otherwise keep the current verify-email flow and make sure the messaging is clear
+#### 5. Enhance Live Score Display (MatchCard.tsx)
+- For live matches: add pulsing green dot, animated score display, show overs prominently
+- Add a live score banner section with team colors
+- Show "Match Status" text from API (e.g., "Day 1 - Session 2", "Innings Break")
 
-### Files to Edit
-- **`src/pages/Auth.tsx`** — Replace `lovable.auth` Google login with `supabase.auth.signInWithOAuth`, add username uniqueness check
-- **Migration** — Add unique constraint on `profiles.username`
-- **Data cleanup** — Delete duplicate profile rows
+#### 6. Better Player Card Images (PlayerCard.tsx)  
+- Ensure `AvatarImage` has proper error handling
+- Add a loading skeleton while image loads
+- Use CricAPI player image URLs which come as `https://h.cricapi.com/img/icon/{id}.jpg`
+
+### Files to Create/Edit
+- **Create** `src/components/ScrollToTop.tsx`
+- **Edit** `src/App.tsx` — add ScrollToTop
+- **Edit** `src/components/Layout.tsx` — fix padding
+- **Edit** `src/pages/Index.tsx` — add match grouping (Next 48h / Later)
+- **Edit** `src/components/TeamLogo.tsx` — fix logo URLs, add HK/RP teams
+- **Edit** `src/components/MatchCard.tsx` — enhance live score display
+- **Edit** `src/components/PlayerCard.tsx` — improve image handling
+- **Create** `supabase/functions/proxy-cricapi/index.ts` — client-side API proxy
+- **Edit** `src/pages/MatchDetail.tsx` — client-side player sync fallback
 
 ### Technical Details
-- The `handle_new_user` trigger auto-creates a profile on signup using the username from `raw_user_meta_data`. The unique constraint will cause signup to fail gracefully if username is taken, but we add a pre-check for better UX.
-- Google OAuth via `supabase.auth.signInWithOAuth` redirects to Google and back to the app's URL — works on any domain, not just Lovable preview.
+- Match grouping uses `addDays(new Date(), 2)` from date-fns to split upcoming matches
+- Team logos will use direct CricAPI team image URLs (`https://h.cricapi.com/img/icon/{teamId}.jpg`) or reliable fallback colored circles with proper abbreviations
+- The proxy edge function simply forwards requests to `api.cricapi.com` with the stored API key, avoiding CORS issues on the client
+- ScrollToTop uses `useEffect` + `useLocation` to call `window.scrollTo(0, 0)` on path change
 
