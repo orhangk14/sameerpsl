@@ -1,11 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/Layout';
 import { PlayerCard } from '@/components/PlayerCard';
+import { CountdownTimer } from '@/components/CountdownTimer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Filter } from 'lucide-react';
+import { ArrowLeft, Filter, RefreshCw, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -21,6 +22,7 @@ interface Player {
   credits: number;
   points: number;
   is_playing: boolean | null;
+  image_url?: string | null;
 }
 
 const BUDGET = 100;
@@ -51,6 +53,7 @@ const MatchDetail = () => {
   const [viceCaptain, setViceCaptain] = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState<PlayerRole | 'ALL'>('ALL');
 
+  // Fetch match data
   const { data: match } = useQuery({
     queryKey: ['match', id],
     queryFn: async () => {
@@ -60,7 +63,8 @@ const MatchDetail = () => {
     },
   });
 
-  const { data: allPlayers = [] } = useQuery({
+  // Fetch players for this match
+  const { data: allPlayers = [], isLoading: playersLoading } = useQuery({
     queryKey: ['match-players', id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -72,11 +76,77 @@ const MatchDetail = () => {
     },
   });
 
+  // Fetch existing user team
+  const { data: existingTeam } = useQuery({
+    queryKey: ['user-team', id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('user_teams')
+        .select('*, team_players(player_id)')
+        .eq('user_id', user!.id)
+        .eq('match_id', id!)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  // Load existing team into state
+  useEffect(() => {
+    if (existingTeam) {
+      const playerIds = new Set(existingTeam.team_players?.map((tp: any) => tp.player_id) || []);
+      setSelected(playerIds);
+      setCaptain(existingTeam.captain_id);
+      setViceCaptain(existingTeam.vice_captain_id);
+    }
+  }, [existingTeam]);
+
+  // Realtime subscription for match & player updates
+  useEffect(() => {
+    const matchChannel = supabase
+      .channel(`match-${id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches', filter: `id=eq.${id}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ['match', id] });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['match-players', id] });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(matchChannel); };
+  }, [id, queryClient]);
+
+  // Determine lock state
+  const isLocked = useMemo(() => {
+    if (!match) return false;
+    if (match.status === 'live' || match.status === 'completed') return true;
+    const lockTime = match.lock_time || match.match_date;
+    return new Date(lockTime).getTime() <= Date.now();
+  }, [match]);
+
+  // Sync players for this match
+  const syncPlayersMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('sync-players', {
+        body: { match_id: id },
+      });
+      if (error) throw error;
+      if (!data.success) throw new Error(data.error || 'Sync failed');
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(`Synced ${data.players} players! 🏏`);
+      queryClient.invalidateQueries({ queryKey: ['match-players', id] });
+    },
+    onError: (error: any) => toast.error(`Player sync failed: ${error.message}`),
+  });
+
+  // Save team mutation
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!user || !id || !captain || !viceCaptain) throw new Error('Missing data');
-      
-      // Upsert user team
+      if (isLocked) throw new Error('Team is locked');
+
       const { data: team, error: teamError } = await supabase
         .from('user_teams')
         .upsert({
@@ -89,9 +159,8 @@ const MatchDetail = () => {
         .single();
       if (teamError) throw teamError;
 
-      // Delete existing team players and re-insert
       await supabase.from('team_players').delete().eq('user_team_id', team.id);
-      
+
       const { error: playersError } = await supabase
         .from('team_players')
         .insert(Array.from(selected).map(playerId => ({
@@ -128,9 +197,12 @@ const MatchDetail = () => {
     return counts;
   }, [selectedPlayers]);
 
+  const notPlayingCount = selectedPlayers.filter(p => p.is_playing === false).length;
+
   if (!match) return <Layout><p className="text-center text-muted-foreground pt-10">Loading...</p></Layout>;
 
   const canSelect = (player: Player) => {
+    if (isLocked) return false;
     if (selected.has(player.id)) return true;
     if (selected.size >= 11) return false;
     if (Number(player.credits) > remainingCredits) return false;
@@ -140,6 +212,7 @@ const MatchDetail = () => {
   };
 
   const handleSelect = (player: Player) => {
+    if (isLocked) return;
     const next = new Set(selected);
     if (next.has(player.id)) {
       next.delete(player.id);
@@ -153,11 +226,13 @@ const MatchDetail = () => {
   };
 
   const handleCaptain = (player: Player) => {
+    if (isLocked) return;
     if (viceCaptain === player.id) setViceCaptain(null);
     setCaptain(captain === player.id ? null : player.id);
   };
 
   const handleViceCaptain = (player: Player) => {
+    if (isLocked) return;
     if (captain === player.id) setCaptain(null);
     setViceCaptain(viceCaptain === player.id ? null : player.id);
   };
@@ -168,19 +243,50 @@ const MatchDetail = () => {
   return (
     <Layout>
       <div className="space-y-4 pt-4">
-        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft className="w-4 h-4" /> Back
-        </button>
+        <div className="flex items-center justify-between">
+          <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Back
+          </button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => syncPlayersMutation.mutate()}
+            disabled={syncPlayersMutation.isPending}
+            className="border-border text-foreground hover:bg-muted text-xs"
+          >
+            <RefreshCw className={cn("w-3 h-3 mr-1", syncPlayersMutation.isPending && "animate-spin")} />
+            {syncPlayersMutation.isPending ? 'Syncing...' : 'Sync Players'}
+          </Button>
+        </div>
 
+        {/* Match Header */}
         <div className="gradient-card rounded-xl border border-border p-4 text-center">
           <p className="text-xs text-muted-foreground mb-1">{match.venue}</p>
           <div className="flex items-center justify-center gap-4">
             <span className="font-display font-bold text-foreground">{match.team_a_logo}</span>
+            {match.status !== 'upcoming' && match.team_a_score && (
+              <span className="text-xs text-muted-foreground">{match.team_a_score}</span>
+            )}
             <span className="text-xs text-muted-foreground">vs</span>
+            {match.status !== 'upcoming' && match.team_b_score && (
+              <span className="text-xs text-muted-foreground">{match.team_b_score}</span>
+            )}
             <span className="font-display font-bold text-foreground">{match.team_b_logo}</span>
+          </div>
+          <div className="mt-2">
+            <CountdownTimer targetDate={match.lock_time || match.match_date} isLocked={isLocked} />
           </div>
         </div>
 
+        {/* Warnings */}
+        {notPlayingCount > 0 && !isLocked && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm font-display">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{notPlayingCount} player(s) in your team not in Playing XI!</span>
+          </div>
+        )}
+
+        {/* Budget & Constraints */}
         <div className="gradient-card rounded-lg border border-border p-3">
           <div className="flex justify-between text-sm mb-2">
             <span className="text-muted-foreground">Players: <span className="text-foreground font-display font-bold">{selected.size}/11</span></span>
@@ -198,6 +304,7 @@ const MatchDetail = () => {
           </div>
         </div>
 
+        {/* Role Filter */}
         <div className="flex gap-2 items-center">
           <Filter className="w-4 h-4 text-muted-foreground" />
           {ROLE_FILTERS.map(r => (
@@ -214,32 +321,55 @@ const MatchDetail = () => {
           ))}
         </div>
 
-        <div className="space-y-2">
-          {filteredPlayers.map(player => (
-            <PlayerCard
-              key={player.id}
-              player={player}
-              roleColors={ROLE_COLORS}
-              selected={selected.has(player.id)}
-              isCaptain={captain === player.id}
-              isViceCaptain={viceCaptain === player.id}
-              onSelect={handleSelect}
-              onCaptain={handleCaptain}
-              onViceCaptain={handleViceCaptain}
-              disabled={!canSelect(player)}
-            />
-          ))}
-        </div>
+        {/* Player List */}
+        {playersLoading ? (
+          <p className="text-center text-muted-foreground text-sm py-8">Loading players...</p>
+        ) : allPlayers.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-muted-foreground text-sm mb-3">No players found for this match.</p>
+            <Button
+              size="sm"
+              onClick={() => syncPlayersMutation.mutate()}
+              disabled={syncPlayersMutation.isPending}
+              className="gradient-primary text-primary-foreground font-display"
+            >
+              <RefreshCw className={cn("w-3 h-3 mr-1", syncPlayersMutation.isPending && "animate-spin")} />
+              Sync Players from API
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filteredPlayers.map(player => (
+              <PlayerCard
+                key={player.id}
+                player={player}
+                roleColors={ROLE_COLORS}
+                selected={selected.has(player.id)}
+                isCaptain={captain === player.id}
+                isViceCaptain={viceCaptain === player.id}
+                onSelect={handleSelect}
+                onCaptain={handleCaptain}
+                onViceCaptain={handleViceCaptain}
+                disabled={!canSelect(player)}
+                isLocked={isLocked}
+                showPoints={match.status === 'live' || match.status === 'completed'}
+              />
+            ))}
+          </div>
+        )}
 
-        <div className="sticky bottom-20 z-10">
-          <Button
-            onClick={() => saveMutation.mutate()}
-            disabled={!isValid || saveMutation.isPending}
-            className="w-full gradient-primary text-primary-foreground font-display font-bold text-base py-6 shadow-glow disabled:opacity-40"
-          >
-            {saveMutation.isPending ? 'Saving...' : `Save Team (${selected.size}/11)`}
-          </Button>
-        </div>
+        {/* Save Button */}
+        {!isLocked && (
+          <div className="sticky bottom-20 z-10">
+            <Button
+              onClick={() => saveMutation.mutate()}
+              disabled={!isValid || saveMutation.isPending}
+              className="w-full gradient-primary text-primary-foreground font-display font-bold text-base py-6 shadow-glow disabled:opacity-40"
+            >
+              {saveMutation.isPending ? 'Saving...' : `Save Team (${selected.size}/11)`}
+            </Button>
+          </div>
+        )}
       </div>
     </Layout>
   );
