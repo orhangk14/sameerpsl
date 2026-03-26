@@ -70,6 +70,42 @@ export type Database = {
         }
         Relationships: []
       }
+      match_player_points: {
+        Row: {
+          id: string
+          match_id: string
+          player_id: string
+          points: number
+        }
+        Insert: {
+          id?: string
+          match_id: string
+          player_id: string
+          points?: number
+        }
+        Update: {
+          id?: string
+          match_id?: string
+          player_id?: string
+          points?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_player_points_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_player_points_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       match_players: {
         Row: {
           id: string

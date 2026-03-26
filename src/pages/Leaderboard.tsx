@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '@/components/Layout';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Trophy, Medal } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -14,6 +14,24 @@ const rankStyles: Record<number, string> = {
 
 const Leaderboard = () => {
   const [selectedMatch, setSelectedMatch] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  // Realtime subscription for live leaderboard updates
+  useEffect(() => {
+    const channel = supabase
+      .channel('leaderboard-realtime')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_teams' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['leaderboard-overall'] });
+        if (selectedMatch) {
+          queryClient.invalidateQueries({ queryKey: ['leaderboard-match', selectedMatch] });
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['leaderboard-overall'] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [queryClient, selectedMatch]);
 
   const { data: matches = [] } = useQuery({
     queryKey: ['leaderboard-matches'],
