@@ -46,19 +46,29 @@ const ROLE_COLORS: Record<PlayerRole, string> = {
   WK: 'bg-destructive text-destructive-foreground',
 };
 
-// Generate a deterministic UUID-like string from player name + team
+// Generate a deterministic valid UUID from player name + team
 const generateId = (name: string, team: string): string => {
   const str = `${name}-${team}`;
-  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57, h3 = 0x12345678, h4 = 0x9abcdef0;
   for (let i = 0; i < str.length; i++) {
     const ch = str.charCodeAt(i);
     h1 = Math.imul(h1 ^ ch, 2654435761);
     h2 = Math.imul(h2 ^ ch, 1597334677);
+    h3 = Math.imul(h3 ^ ch, 2246822507);
+    h4 = Math.imul(h4 ^ ch, 3266489909);
   }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  const hex = (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0');
-  return `${hex.slice(0,8)}-${hex.slice(8,12)}-4${hex.slice(13,16)}-a${hex.slice(16,19)}-${hex.slice(0,12)}`;
+  h1 = (h1 ^ (h1 >>> 16)) >>> 0;
+  h2 = (h2 ^ (h2 >>> 16)) >>> 0;
+  h3 = (h3 ^ (h3 >>> 16)) >>> 0;
+  h4 = (h4 ^ (h4 >>> 16)) >>> 0;
+  const hex = [
+    h1.toString(16).padStart(8, '0'),
+    h2.toString(16).padStart(8, '0').slice(0, 4),
+    '4' + h2.toString(16).padStart(8, '0').slice(5, 8),
+    ((h3 & 0x3fff) | 0x8000).toString(16).padStart(4, '0'),
+    h4.toString(16).padStart(8, '0') + h1.toString(16).padStart(8, '0').slice(0, 4),
+  ];
+  return `${hex[0]}-${hex[1]}-${hex[2]}-${hex[3]}-${hex[4]}`;
 };
 
 const fallbackToPlayer = (fp: FallbackPlayer): Player => ({
