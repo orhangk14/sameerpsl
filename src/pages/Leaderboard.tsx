@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Layout } from '@/components/Layout';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Trophy, Medal } from 'lucide-react';
 import { cn } from '@/lib/utils';

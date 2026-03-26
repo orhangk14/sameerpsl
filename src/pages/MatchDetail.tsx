@@ -347,7 +347,7 @@ const MatchDetail = () => {
 
       const { data: team, error: teamError } = await supabase
         .from('user_teams')
-        .upsert({ user_id: user.id, match_id: id, captain_id: captain, vice_captain_id: viceCaptain }, { onConflict: 'user_id,match_id' })
+        .upsert({ user_id: user.id, match_id: id, captain_id: realCaptain, vice_captain_id: realViceCaptain }, { onConflict: 'user_id,match_id' })
         .select()
         .single();
       if (teamError) throw teamError;
@@ -355,7 +355,7 @@ const MatchDetail = () => {
       await supabase.from('team_players').delete().eq('user_team_id', team.id);
       const { error: playersError } = await supabase
         .from('team_players')
-        .insert(Array.from(selected).map(playerId => ({ user_team_id: team.id, player_id: playerId })));
+        .insert(realSelectedIds.map(playerId => ({ user_team_id: team.id, player_id: playerId })));
       if (playersError) throw playersError;
     },
     onSuccess: () => {
