@@ -1,38 +1,48 @@
 
 
-## Plan: Per-Match Leaderboard for Upcoming Matches + View Others' Squads
+## Plan: Improve Leaderboard UI, Match Ordering & 48-Hour Filter
 
-### Problem
-1. The "Per Match" tab filters matches to `status IN ('live', 'completed')` — upcoming matches are excluded entirely.
-2. `team_players` has an RLS policy that only lets users see their own team players — so viewing another user's squad is impossible.
-3. There's no UI to expand a leaderboard entry and see the squad behind it.
+### Current Issues (from screenshot)
+- All matches show "Tbc vs Tbc" — team names are truncated or placeholder data
+- Matches ordered by `match_date DESC` (latest first) — should be earliest first
+- No 48-hour filter — all 20 matches shown regardless of date
+- Horizontal scrollbar visible and ugly on match selector
+- Overall tab looks plain — top 3 need more visual distinction
+- Match selector pills are cramped and hard to scan
 
-### Changes
+### Changes to `src/pages/Leaderboard.tsx`
 
-#### 1. Database Migration
-- Add a new SELECT policy on `team_players`: `"Anyone can view team players" FOR SELECT TO authenticated USING (true)` — this enables viewing other users' squads on the leaderboard.
-- Drop the existing restrictive SELECT policy on `team_players`.
+**1. Match query — earliest first + 48-hour window**
+- Change ordering to `ascending: true` (earliest game first)
+- Add a date filter: only fetch matches where `match_date` is within the next 48 hours from now (using `.lte()` and `.gte()`)
+- Also include live/completed matches from the last 24 hours so recent results are still visible
 
-#### 2. Leaderboard.tsx — Include Upcoming Matches
-- Change the matches query from `.in('status', ['live', 'completed'])` to `.in('status', ['upcoming', 'live', 'completed'])` so all matches with entries appear.
-- Add a status badge next to each match button (e.g., "Upcoming", "Live", "Completed").
-- For upcoming matches, show "Entries: X" instead of points since points are 0.
+**2. Match selector pills — better UI**
+- Show match date/time below team names (e.g., "Mar 27, 7:00 PM")
+- Use vertical card-style buttons instead of cramped horizontal pills
+- Hide the scrollbar with proper CSS (`no-scrollbar` utility)
+- Auto-select the first match when the tab is opened
 
-#### 3. Leaderboard.tsx — Expandable Squad View
-- Make each leaderboard entry clickable/expandable.
-- On click, fetch `team_players` joined with `players` for that user's `user_team_id`.
-- Show the 11 players in a compact grid with name, role, C/VC badges.
-- For live/completed matches, show each player's match points from `match_player_points`.
+**3. Overall tab — enhanced top 3**
+- Rank 1: gold gradient with crown/trophy icon
+- Rank 2: silver tint  
+- Rank 3: bronze tint
+- Add rank number alongside the medal icon for clarity
+- Add subtle entry count text at the bottom
 
-### Files
-
-| Action | File |
-|--------|------|
-| Migration | Add public SELECT policy on `team_players`, drop restrictive one |
-| Edit | `src/pages/Leaderboard.tsx` — include upcoming matches, add expandable squad view |
+**4. Entry rows — polish**
+- Add avatar initial circle for each user
+- Slightly larger padding and better spacing
+- Smoother expand/collapse animation for squad view
 
 ### Technical Details
-- Match entries query for upcoming: still queries `user_teams` by `match_id`, ordered by `created_at` (since all have 0 points).
-- Squad fetch: `supabase.from('team_players').select('player_id, players(name, role, team, credits)').eq('user_team_id', teamId)` — also fetch `user_teams.captain_id` and `vice_captain_id` to display C/VC badges.
-- The expanded view uses an accordion-style pattern — clicking an entry toggles the squad panel below it.
+- Import `format, addHours, isAfter, isBefore` from `date-fns`
+- Filter matches client-side after fetch: `matches.filter(m => new Date(m.match_date) <= addHours(new Date(), 48))` for upcoming, plus include live/completed from last 24h
+- Sort ascending by `match_date`
+- Auto-select first match via `useEffect` when matches load and no match is selected
+
+### Files
+| Action | File |
+|--------|------|
+| Edit | `src/pages/Leaderboard.tsx` — all UI and query changes |
 
