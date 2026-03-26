@@ -11,6 +11,7 @@ import Leagues from "./pages/Leagues.tsx";
 import Profile from "./pages/Profile.tsx";
 import Auth from "./pages/Auth.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import AdminScores from "./pages/AdminScores.tsx";
 import ScrollToTop from "./components/ScrollToTop";
 
 const queryClient = new QueryClient();
@@ -44,6 +45,7 @@ const App = () => (
             <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
             <Route path="/leagues" element={<ProtectedRoute><Leagues /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+            <Route path="/admin/scores" element={<ProtectedRoute><AdminScores /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

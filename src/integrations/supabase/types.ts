@@ -72,18 +72,21 @@ export type Database = {
       }
       match_player_points: {
         Row: {
+          data_source: string | null
           id: string
           match_id: string
           player_id: string
           points: number
         }
         Insert: {
+          data_source?: string | null
           id?: string
           match_id: string
           player_id: string
           points?: number
         }
         Update: {
+          data_source?: string | null
           id?: string
           match_id?: string
           player_id?: string
@@ -142,6 +145,8 @@ export type Database = {
       matches: {
         Row: {
           created_at: string
+          cricbuzz_match_id: string | null
+          espn_match_id: string | null
           external_id: string | null
           id: string
           lock_time: string | null
@@ -158,6 +163,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          cricbuzz_match_id?: string | null
+          espn_match_id?: string | null
           external_id?: string | null
           id?: string
           lock_time?: string | null
@@ -174,6 +181,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          cricbuzz_match_id?: string | null
+          espn_match_id?: string | null
           external_id?: string | null
           id?: string
           lock_time?: string | null
