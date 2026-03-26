@@ -14,7 +14,294 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      league_members: {
+        Row: {
+          id: string
+          joined_at: string
+          league_id: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          joined_at?: string
+          league_id: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          joined_at?: string
+          league_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "league_members_league_id_fkey"
+            columns: ["league_id"]
+            isOneToOne: false
+            referencedRelation: "leagues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leagues: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          prize: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by: string
+          id?: string
+          name: string
+          prize?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          prize?: string | null
+        }
+        Relationships: []
+      }
+      match_players: {
+        Row: {
+          id: string
+          match_id: string
+          player_id: string
+        }
+        Insert: {
+          id?: string
+          match_id: string
+          player_id: string
+        }
+        Update: {
+          id?: string
+          match_id?: string
+          player_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_players_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_players_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      matches: {
+        Row: {
+          created_at: string
+          id: string
+          match_date: string
+          status: string
+          team_a: string
+          team_a_logo: string
+          team_a_score: string | null
+          team_b: string
+          team_b_logo: string
+          team_b_score: string | null
+          updated_at: string
+          venue: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          match_date: string
+          status?: string
+          team_a: string
+          team_a_logo: string
+          team_a_score?: string | null
+          team_b: string
+          team_b_logo: string
+          team_b_score?: string | null
+          updated_at?: string
+          venue: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          match_date?: string
+          status?: string
+          team_a?: string
+          team_a_logo?: string
+          team_a_score?: string | null
+          team_b?: string
+          team_b_logo?: string
+          team_b_score?: string | null
+          updated_at?: string
+          venue?: string
+        }
+        Relationships: []
+      }
+      players: {
+        Row: {
+          created_at: string
+          credits: number
+          id: string
+          image_url: string | null
+          is_playing: boolean | null
+          name: string
+          points: number
+          role: Database["public"]["Enums"]["player_role"]
+          team: string
+        }
+        Insert: {
+          created_at?: string
+          credits: number
+          id?: string
+          image_url?: string | null
+          is_playing?: boolean | null
+          name: string
+          points?: number
+          role: Database["public"]["Enums"]["player_role"]
+          team: string
+        }
+        Update: {
+          created_at?: string
+          credits?: number
+          id?: string
+          image_url?: string | null
+          is_playing?: boolean | null
+          name?: string
+          points?: number
+          role?: Database["public"]["Enums"]["player_role"]
+          team?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          id: string
+          total_points: number
+          updated_at: string
+          user_id: string
+          username: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          id?: string
+          total_points?: number
+          updated_at?: string
+          user_id: string
+          username: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          id?: string
+          total_points?: number
+          updated_at?: string
+          user_id?: string
+          username?: string
+        }
+        Relationships: []
+      }
+      team_players: {
+        Row: {
+          id: string
+          player_id: string
+          user_team_id: string
+        }
+        Insert: {
+          id?: string
+          player_id: string
+          user_team_id: string
+        }
+        Update: {
+          id?: string
+          player_id?: string
+          user_team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_players_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_players_user_team_id_fkey"
+            columns: ["user_team_id"]
+            isOneToOne: false
+            referencedRelation: "user_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_teams: {
+        Row: {
+          captain_id: string
+          created_at: string
+          id: string
+          match_id: string
+          total_points: number
+          updated_at: string
+          user_id: string
+          vice_captain_id: string
+        }
+        Insert: {
+          captain_id: string
+          created_at?: string
+          id?: string
+          match_id: string
+          total_points?: number
+          updated_at?: string
+          user_id: string
+          vice_captain_id: string
+        }
+        Update: {
+          captain_id?: string
+          created_at?: string
+          id?: string
+          match_id?: string
+          total_points?: number
+          updated_at?: string
+          user_id?: string
+          vice_captain_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_teams_captain_id_fkey"
+            columns: ["captain_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_teams_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_teams_vice_captain_id_fkey"
+            columns: ["vice_captain_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +310,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      player_role: "BAT" | "BOWL" | "AR" | "WK"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +437,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      player_role: ["BAT", "BOWL", "AR", "WK"],
+    },
   },
 } as const
