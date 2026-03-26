@@ -1,0 +1,1 @@
+CREATE POLICY "Users can delete own team players" ON team_players FOR DELETE USING (EXISTS (SELECT 1 FROM user_teams ut WHERE ut.id = team_players.user_team_id AND ut.user_id = auth.uid()));

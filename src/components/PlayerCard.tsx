@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Check, X, Minus, Star } from 'lucide-react';
+import { PlayingXIBadge } from '@/components/PlayingXIBadge';
 import { cn } from '@/lib/utils';
 
 type PlayerRole = 'BAT' | 'BOWL' | 'AR' | 'WK';
@@ -12,6 +13,7 @@ interface Player {
   credits: number;
   points: number;
   is_playing: boolean | null;
+  image_url?: string | null;
 }
 
 interface PlayerCardProps {
@@ -24,6 +26,8 @@ interface PlayerCardProps {
   onCaptain?: (player: Player) => void;
   onViceCaptain?: (player: Player) => void;
   disabled?: boolean;
+  isLocked?: boolean;
+  showPoints?: boolean;
 }
 
 export const PlayerCard = ({
@@ -36,35 +40,52 @@ export const PlayerCard = ({
   onCaptain,
   onViceCaptain,
   disabled = false,
+  isLocked = false,
+  showPoints = false,
 }: PlayerCardProps) => {
-  const playingIcon = player.is_playing === true 
-    ? <Check className="w-3.5 h-3.5 text-primary" />
-    : player.is_playing === false 
-    ? <X className="w-3.5 h-3.5 text-destructive" />
-    : <Minus className="w-3.5 h-3.5 text-muted-foreground" />;
+  const notInXI = selected && player.is_playing === false;
 
   return (
     <div
       className={cn(
-        "gradient-card rounded-lg border p-3 transition-all duration-200 cursor-pointer",
+        "gradient-card rounded-lg border p-3 transition-all duration-200",
+        !isLocked && "cursor-pointer",
+        isLocked && "cursor-default",
         selected ? "border-primary shadow-glow" : "border-border hover:border-primary/30",
+        notInXI && "border-destructive/50 shadow-none",
         disabled && !selected && "opacity-40 cursor-not-allowed",
       )}
-      onClick={() => !disabled && onSelect?.(player)}
+      onClick={() => !disabled && !isLocked && onSelect?.(player)}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center font-display font-bold text-sm text-foreground shrink-0">
-            {player.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-          </div>
+          {player.image_url ? (
+            <img
+              src={player.image_url}
+              alt={player.name}
+              className="w-10 h-10 rounded-full object-cover border border-border shrink-0"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center font-display font-bold text-sm text-foreground shrink-0">
+              {player.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+            </div>
+          )}
           <div className="min-w-0">
-            <p className="font-display font-semibold text-sm text-foreground truncate">{player.name}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="font-display font-semibold text-sm text-foreground truncate">{player.name}</p>
+              {isCaptain && <span className="text-[9px] px-1 py-0.5 rounded gradient-gold text-secondary-foreground font-display font-bold">C</span>}
+              {isViceCaptain && <span className="text-[9px] px-1 py-0.5 rounded gradient-primary text-primary-foreground font-display font-bold">VC</span>}
+            </div>
             <p className="text-xs text-muted-foreground truncate">{player.team}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {playingIcon}
+          {showPoints && (
+            <span className="text-sm font-display font-bold text-primary">{player.points}pts</span>
+          )}
+          <PlayingXIBadge isPlaying={player.is_playing} />
           <Badge className={cn("text-[10px] px-1.5 py-0.5", roleColors[player.role])}>
             {player.role}
           </Badge>
@@ -72,7 +93,13 @@ export const PlayerCard = ({
         </div>
       </div>
 
-      {selected && (
+      {notInXI && !isLocked && (
+        <div className="mt-2 px-2 py-1 rounded bg-destructive/10 text-destructive text-[11px] font-display font-semibold text-center">
+          ⚠️ Not in Playing XI — will score 0 points
+        </div>
+      )}
+
+      {selected && !isLocked && (
         <div className="flex gap-2 mt-2 pt-2 border-t border-border">
           <button
             onClick={(e) => { e.stopPropagation(); onCaptain?.(player); }}
