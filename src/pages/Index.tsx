@@ -43,13 +43,19 @@ const Index = () => {
 
   const syncMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('sync-matches');
-      if (error) throw error;
-      if (!data.success) throw new Error(data.error || 'Sync failed');
-      return data;
+      // Sync matches first
+      const { data: matchData, error: matchError } = await supabase.functions.invoke('sync-matches');
+      if (matchError) throw matchError;
+      if (!matchData.success) throw new Error(matchData.error || 'Match sync failed');
+
+      // Then sync players
+      const { data: playerData, error: playerError } = await supabase.functions.invoke('sync-players');
+      if (playerError) throw playerError;
+
+      return { ...matchData, players: playerData?.players || 0 };
     },
     onSuccess: (data) => {
-      toast.success(`Synced ${data.matches_synced} matches from CricAPI! 🏏`);
+      toast.success(`Synced ${data.matches_synced} matches & ${data.players} players! 🏏`);
       queryClient.invalidateQueries({ queryKey: ['matches'] });
     },
     onError: (error: any) => toast.error(`Sync failed: ${error.message}`),
