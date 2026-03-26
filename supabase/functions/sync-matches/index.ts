@@ -20,6 +20,8 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  console.log("sync-matches version: db-http-v2");
+
   try {
     const CRICAPI_KEY = Deno.env.get("CRICAPI_KEY");
     if (!CRICAPI_KEY) throw new Error("CRICAPI_KEY is not configured");
