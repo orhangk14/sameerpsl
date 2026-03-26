@@ -252,11 +252,26 @@ const MatchDetail = () => {
   }, [playersLoading, dbPlayers.length, id, queryClient, match?.external_id]);
 
   const allPlayers = useMemo(() => {
-    if (dbPlayers.length > 0) return dbPlayers;
-    if (!match) return [];
+    if (!match) return dbPlayers.length > 0 ? dbPlayers : [];
+
     const fallbacks = getFallbackPlayers(match.team_a, match.team_b);
-    if (fallbacks.length > 0) return fallbacks.map(fallbackToPlayer);
-    return [];
+    if (dbPlayers.length === 0) {
+      return fallbacks.length > 0 ? fallbacks.map(fallbackToPlayer) : [];
+    }
+
+    // Merge: DB players take priority, fallback fills gaps
+    const normalize = (n: string) => n.toLowerCase().replace(/[^a-z]/g, '');
+    const dbSet = new Set(dbPlayers.map(p => `${normalize(p.name)}|${p.team}`));
+    const merged: Player[] = [...dbPlayers];
+
+    for (const fp of fallbacks) {
+      const key = `${normalize(fp.name)}|${fp.team}`;
+      if (!dbSet.has(key)) {
+        merged.push(fallbackToPlayer(fp));
+      }
+    }
+
+    return merged;
   }, [dbPlayers, match]);
 
   useEffect(() => {
