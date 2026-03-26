@@ -26,10 +26,19 @@ function defaultCredits(role: string): number {
   }
 }
 
-async function apiFetch(url: string): Promise<any> {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`API returned ${resp.status}`);
-  return resp.json();
+async function apiFetch(supabase: any, url: string, retries = 3): Promise<any> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) return resp.json();
+    } catch (_) {}
+    try {
+      const { data, error } = await supabase.rpc("http_get_json", { target_url: url });
+      if (!error && data) return data;
+    } catch (_) {}
+    if (i < retries - 1) await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+  }
+  throw new Error(`Failed to fetch after ${retries} retries: ${url.split('?')[0]}`);
 }
 
 Deno.serve(async (req) => {
@@ -83,6 +92,7 @@ Deno.serve(async (req) => {
 
       try {
         const data = await apiFetch(
+          supabase,
           `${CRICAPI_BASE}/match_squad?apikey=${encodeURIComponent(CRICAPI_KEY)}&id=${match.external_id}`
         );
 
