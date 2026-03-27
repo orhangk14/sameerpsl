@@ -293,27 +293,29 @@ async function tryCricbuzz(
     let teamBScore: string | null = null;
     const players: PlayerStats[] = [];
 
-    // Check match state — RSC uses escaped quotes: \"state\":\"Complete\"
-    const matchEnded = html.includes('\\"state\\":\\"Complete\\"') || 
-                       html.includes('"state":"Complete"') ||
-                       html.includes(' won by ');
+    // Check match state more precisely — look for the match-specific state field
+    // Use the matchScoreDetails state, not random "won by" text in ads/videos
+    const stateMatch = html.match(/\\?"state\\?":\s*\\?"(Complete|In Progress|Toss|Preview)\\?"/);
+    const matchEnded = stateMatch ? stateMatch[1] === "Complete" : false;
 
-    // Extract innings scores from RSC: \"score\":89,\"wickets\":3,\"overs\":9.3
-    // Also try unescaped format
-    const scoreRegex = /\\?"score\\?":\s*(\d+)\s*,\s*\\?"wickets\\?":\s*(\d+)\s*,\s*\\?"overs\\?":\s*([\d.]+)/g;
-    const seenScores = new Set<string>();
-    let sm;
-    while ((sm = scoreRegex.exec(html)) !== null) {
-      const key = `${sm[1]}/${sm[2]}/${sm[3]}`;
-      if (seenScores.has(key)) continue;
-      seenScores.add(key);
-      const score = `${sm[1]}/${sm[2]} (${sm[3]})`;
-      if (!teamAScore) {
-        teamAScore = score;
-      } else if (!teamBScore) {
-        teamBScore = score;
-      }
+    // Extract innings scores from inningsScoreList in RSC data
+    // Pattern: \"inningsId\":1,\"batTeamId\":332,\"batTeamName\":\"KRK\",\"score\":89,\"wickets\":3,\"overs\":9.3
+    // The data repeats - collect unique innings by inningsId
+    const inningsRegex = /\\?"inningsId\\?":\s*(\d+)\s*,\s*\\?"batTeamId\\?":\s*\d+\s*,\s*\\?"batTeamName\\?":\s*\\?"([^"\\]+)\\?"\s*,\s*\\?"score\\?":\s*(\d+)\s*,\s*\\?"wickets\\?":\s*(\d+)\s*,\s*\\?"overs\\?":\s*([\d.]+)/g;
+    const inningsByid = new Map<string, { team: string; score: string }>();
+    let im;
+    while ((im = inningsRegex.exec(html)) !== null) {
+      const inningsId = im[1];
+      const team = im[2];
+      const score = `${im[3]}/${im[4]} (${im[5]})`;
+      // Always update with latest data (page may have multiple RSC chunks)
+      inningsByid.set(inningsId, { team, score });
     }
+
+    // Map innings to team A/B
+    const innings = [...inningsByid.values()];
+    if (innings.length >= 1) teamAScore = innings[0].score;
+    if (innings.length >= 2) teamBScore = innings[1].score;
 
     // Fallback: extract from title/meta: "KRK 88/3 (9.2)"
     if (!teamAScore) {
