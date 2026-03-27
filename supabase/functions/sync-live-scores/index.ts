@@ -37,6 +37,25 @@ interface NormalizedScorecard {
   winningTeam: string | null;
 }
 
+// ─── Extract winning team from status text ──────────────────────────────────
+function extractWinningTeam(statusText: string | undefined | null, teamA: string, teamB: string): string | null {
+  if (!statusText) return null;
+  const s = statusText.toLowerCase();
+  if (s.includes("won") || s.includes("beat")) {
+    const tA = teamA.toLowerCase();
+    const tB = teamB.toLowerCase();
+    // Check which team name appears before "won" or is mentioned as winner
+    if (s.includes(tA) && (s.indexOf(tA) < s.indexOf("won") || s.indexOf(tA) < s.indexOf("beat"))) return teamA;
+    if (s.includes(tB) && (s.indexOf(tB) < s.indexOf("won") || s.indexOf(tB) < s.indexOf("beat"))) return teamB;
+    // Fallback: check short names (first word)
+    const shortA = tA.split(" ")[0];
+    const shortB = tB.split(" ")[0];
+    if (s.includes(shortA) && s.indexOf(shortA) < Math.max(s.indexOf("won"), s.indexOf("beat"))) return teamA;
+    if (s.includes(shortB) && s.indexOf(shortB) < Math.max(s.indexOf("won"), s.indexOf("beat"))) return teamB;
+  }
+  return null;
+}
+
 // ─── Main Handler ───────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
