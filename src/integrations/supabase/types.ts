@@ -160,6 +160,7 @@ export type Database = {
           team_b_score: string | null
           updated_at: string
           venue: string
+          winning_team: string | null
         }
         Insert: {
           created_at?: string
@@ -178,6 +179,7 @@ export type Database = {
           team_b_score?: string | null
           updated_at?: string
           venue: string
+          winning_team?: string | null
         }
         Update: {
           created_at?: string
@@ -196,6 +198,7 @@ export type Database = {
           team_b_score?: string | null
           updated_at?: string
           venue?: string
+          winning_team?: string | null
         }
         Relationships: []
       }

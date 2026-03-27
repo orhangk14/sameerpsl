@@ -1,0 +1,1 @@
+ALTER TABLE public.matches ADD COLUMN winning_team text DEFAULT NULL;
