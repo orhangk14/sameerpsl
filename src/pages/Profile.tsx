@@ -58,6 +58,28 @@ const Profile = () => {
     enabled: !!user,
   });
 
+  const handleEditOpen = () => {
+    setNewUsername(profile?.username || '');
+    setEditOpen(true);
+  };
+
+  const handleSaveUsername = async () => {
+    if (!newUsername.trim() || !user) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ username: newUsername.trim() })
+      .eq('user_id', user.id);
+    setSaving(false);
+    if (error) {
+      toast({ title: 'Error', description: 'Failed to update username', variant: 'destructive' });
+    } else {
+      toast({ title: 'Updated', description: 'Username changed successfully' });
+      queryClient.invalidateQueries({ queryKey: ['profile', user.id] });
+      setEditOpen(false);
+    }
+  };
+
   const handleSignOut = async () => {
     await signOut();
     navigate('/auth');
