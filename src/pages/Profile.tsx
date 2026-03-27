@@ -92,7 +92,12 @@ const Profile = () => {
           <div className="w-20 h-20 rounded-full gradient-primary flex items-center justify-center mb-3">
             <User className="w-10 h-10 text-primary-foreground" />
           </div>
-          <h1 className="font-display font-black text-xl text-foreground">{profile?.username || 'Loading...'}</h1>
+          <h1 className="font-display font-black text-xl text-foreground flex items-center gap-2">
+            {profile?.username || 'Loading...'}
+            <button onClick={handleEditOpen} className="text-muted-foreground hover:text-primary transition-colors">
+              <Pencil className="w-4 h-4" />
+            </button>
+          </h1>
           <p className="text-sm text-muted-foreground">{user?.email}</p>
         </div>
 
