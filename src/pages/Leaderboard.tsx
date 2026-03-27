@@ -59,7 +59,7 @@ const Leaderboard = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('matches')
-        .select('id, team_a, team_b, status, match_date')
+        .select('id, team_a, team_b, status, match_date, winning_team')
         .in('status', ['upcoming', 'live', 'completed'])
         .order('match_date', { ascending: true })
         .limit(50);
@@ -333,6 +333,11 @@ const Leaderboard = () => {
                           {m.status === 'live' ? '🔴 Live' : m.status}
                         </span>
                       </div>
+                      {m.status === 'completed' && m.winning_team && (
+                        <p className="text-[10px] font-display font-bold mt-1 truncate" style={{ opacity: selectedMatch === m.id ? 1 : 0.8 }}>
+                          🏆 {m.winning_team}
+                        </p>
+                      )}
                     </button>
                   ))}
                 </div>

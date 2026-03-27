@@ -35,6 +35,7 @@ interface NormalizedScorecard {
   players: PlayerStats[];
   source: "cricapi" | "cricbuzz" | "espn";
   winningTeam: string | null;
+  playerOfTheMatch: string | null;
 }
 
 // ─── Extract winning team from status text ──────────────────────────────────
@@ -267,7 +268,8 @@ async function tryCricAPI(
 
     console.log(`CricAPI succeeded for match ${match.id}`);
     const winningTeam = m.matchEnded ? extractWinningTeam(m.status, match.team_a, match.team_b) : null;
-    return { teamAScore, teamBScore, matchEnded: !!m.matchEnded, players, source: "cricapi", winningTeam };
+    const playerOfTheMatch = m.matchEnded ? (m.playerOfTheMatch?.name || null) : null;
+    return { teamAScore, teamBScore, matchEnded: !!m.matchEnded, players, source: "cricapi", winningTeam, playerOfTheMatch };
   } catch (err) {
     console.log(`CricAPI failed for match ${match.id}:`, err);
     return null;
@@ -389,7 +391,15 @@ async function tryCricbuzz(
       const statusMatch = html.match(statusRegex);
       winningTeam = extractWinningTeam(statusMatch?.[1], match.team_a, match.team_b);
     }
-    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam };
+    // Extract Player of the Match
+    let playerOfTheMatch: string | null = null;
+    const motmRegex = /playersOfTheMatch\\?":\s*\[\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"/;
+    const motmMatch = html.match(motmRegex);
+    if (motmMatch) {
+      playerOfTheMatch = motmMatch[1];
+      console.log(`Cricbuzz: MOTM = ${playerOfTheMatch}`);
+    }
+    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam, playerOfTheMatch };
   } catch (err) {
     console.log(`Cricbuzz failed for match ${match.id}:`, err);
     return null;
@@ -574,7 +584,7 @@ function parseCricbuzzRSC(html: string, match: any): NormalizedScorecard | null 
       });
     }
 
-    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam: null };
+    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam: null, playerOfTheMatch: null };
   } catch (_) {
     return null;
   }
@@ -639,7 +649,7 @@ function parseCricbuzzCommentary(data: any, match: any): NormalizedScorecard | n
     }
 
     const winningTeam = matchEnded ? extractWinningTeam(matchHeader.status, match.team_a, match.team_b) : null;
-    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam };
+    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam, playerOfTheMatch: null };
   } catch (_) {
     return null;
   }
@@ -672,7 +682,7 @@ function parseCricbuzzHTML(html: string, match: any): NormalizedScorecard | null
     }
   }
 
-  return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam: null };
+  return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam: null, playerOfTheMatch: null };
 }
 
 // ─── Source 3: ESPN Cricinfo (Modern API) ──────────────────────────────────
@@ -747,7 +757,8 @@ async function tryESPNModern(
     if (!teamAScore && !teamBScore) return null;
     console.log(`ESPN modern API succeeded for match ${match.id}, found ${players.length} players`);
     const winningTeam = matchEnded ? extractWinningTeam(matchInfo?.statusText || matchInfo?.status, match.team_a, match.team_b) : null;
-    return { teamAScore, teamBScore, matchEnded, players, source: "espn", winningTeam };
+    const playerOfTheMatch = matchEnded ? (matchInfo?.playerOfTheMatch?.[0]?.player?.longName || matchInfo?.playerOfTheMatch?.[0]?.player?.name || null) : null;
+    return { teamAScore, teamBScore, matchEnded, players, source: "espn", winningTeam, playerOfTheMatch };
   } catch (err) {
     console.log(`ESPN modern API failed for match ${match.id}:`, err);
     return null;
@@ -809,7 +820,7 @@ async function tryESPNLegacy(
     if (!teamAScore && !teamBScore) return null;
     console.log(`ESPN legacy succeeded for match ${match.id}, found ${players.length} players`);
     const winningTeam = matchEnded ? extractWinningTeam(data.match?.match_status_text || data.match?.result, match.team_a, match.team_b) : null;
-    return { teamAScore, teamBScore, matchEnded, players, source: "espn", winningTeam };
+    return { teamAScore, teamBScore, matchEnded, players, source: "espn", winningTeam, playerOfTheMatch: null };
   } catch (err) {
     console.log(`ESPN legacy failed for match ${match.id}:`, err);
     return null;
@@ -858,6 +869,15 @@ async function computePlayerPoints(
       const winTeam = scorecard.winningTeam.toLowerCase();
       if (playerTeam === winTeam || playerTeam.includes(winTeam) || winTeam.includes(playerTeam)) {
         points += 5;
+      }
+    }
+
+    // +30 bonus for Player of the Match
+    if (scorecard.playerOfTheMatch) {
+      const motmNorm = normalizeName(scorecard.playerOfTheMatch);
+      if (normalizedPs === motmNorm || normalizedPs.includes(motmNorm) || motmNorm.includes(normalizedPs)) {
+        points += 30;
+        console.log(`MOTM bonus +30 applied to ${ps.name}`);
       }
     }
 
