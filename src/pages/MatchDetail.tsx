@@ -574,7 +574,9 @@ const MatchDetail = () => {
         ) : isLiveOrCompleted && !hasTeam ? (
           /* Live/completed but no team created */
           <div className="text-center py-8 space-y-3">
-            <p className="text-muted-foreground text-sm">You didn't create a team for this match.</p>
+            <AlertTriangle className="w-6 h-6 text-muted-foreground" />
+            <p className="text-muted-foreground text-sm font-display font-semibold">No team created for this match</p>
+            <p className="text-muted-foreground/70 text-xs">Teams must be created before the match starts. You can still view player stats and the leaderboard below.</p>
             <Tabs defaultValue="leaderboard" className="w-full">
               <TabsList className="w-full">
                 <TabsTrigger value="all-players" className="flex-1 gap-1 text-xs">

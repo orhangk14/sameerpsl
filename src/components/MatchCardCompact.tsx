@@ -17,7 +17,7 @@ interface MatchData {
   team_b_score: string | null;
 }
 
-export const MatchCardCompact = ({ match }: { match: MatchData }) => {
+export const MatchCardCompact = ({ match, hasTeam }: { match: MatchData; hasTeam?: boolean }) => {
   const matchDate = new Date(match.match_date);
   const abbrA = TEAM_ABBR[match.team_a] || match.team_a.slice(0, 2).toUpperCase();
   const abbrB = TEAM_ABBR[match.team_b] || match.team_b.slice(0, 2).toUpperCase();
@@ -40,6 +40,7 @@ export const MatchCardCompact = ({ match }: { match: MatchData }) => {
           {format(matchDate, 'MMM d, HH:mm')}
         </div>
 
+        {hasTeam && <span className="text-[10px] text-primary font-display font-bold shrink-0">✓</span>}
         <ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-colors shrink-0" />
       </div>
     </Link>

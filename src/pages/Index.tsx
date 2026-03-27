@@ -6,6 +6,7 @@ import { MatchCardCompact } from '@/components/MatchCardCompact';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { addDays, isBefore } from 'date-fns';
 
 type MatchStatus = 'upcoming' | 'live' | 'completed';
@@ -14,6 +15,7 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState<MatchStatus>('upcoming');
   const queryClient = useQueryClient();
   const autoSyncTriggered = useRef(false);
+  const { user } = useAuth();
 
   const { data: matches = [], isLoading } = useQuery({
     queryKey: ['matches'],
@@ -38,6 +40,19 @@ const Index = () => {
       });
     }
   }, [isLoading, matches.length, queryClient]);
+
+  // Fetch user's teams to show badges
+  const { data: userTeamMatchIds = [] } = useQuery({
+    queryKey: ['user-team-match-ids', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('user_teams')
+        .select('match_id')
+        .eq('user_id', user!.id);
+      return (data || []).map(t => t.match_id);
+    },
+  });
 
   // Realtime subscription
   useEffect(() => {
@@ -102,7 +117,7 @@ const Index = () => {
                       🔥 Next 48 Hours
                     </h2>
                     {next48h.map(match => (
-                      <MatchCard key={match.id} match={match} />
+                      <MatchCard key={match.id} match={match} hasTeam={userTeamMatchIds.includes(match.id)} />
                     ))}
                   </div>
                 )}
@@ -110,7 +125,7 @@ const Index = () => {
                   <div className="space-y-1.5">
                     <h2 className="font-display font-bold text-sm text-muted-foreground">Coming Up Later</h2>
                     {later.map(match => (
-                      <MatchCardCompact key={match.id} match={match} />
+                      <MatchCardCompact key={match.id} match={match} hasTeam={userTeamMatchIds.includes(match.id)} />
                     ))}
                   </div>
                 )}
@@ -126,7 +141,7 @@ const Index = () => {
               </p>
             ) : (
               filteredMatches.map(match => (
-                <MatchCard key={match.id} match={match} />
+                <MatchCard key={match.id} match={match} hasTeam={userTeamMatchIds.includes(match.id)} />
               ))
             )}
           </TabsContent>

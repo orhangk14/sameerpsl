@@ -24,7 +24,7 @@ const statusStyles: Record<string, string> = {
   completed: 'bg-muted text-muted-foreground opacity-70',
 };
 
-export const MatchCard = ({ match }: { match: MatchData }) => {
+export const MatchCard = ({ match, hasTeam }: { match: MatchData; hasTeam?: boolean }) => {
   const matchDate = new Date(match.match_date);
   const isLive = match.status === 'live';
 
@@ -35,10 +35,15 @@ export const MatchCard = ({ match }: { match: MatchData }) => {
         isLive ? "border-destructive/40 shadow-[0_0_15px_-3px_hsl(var(--destructive)/0.3)]" : "border-border hover:border-primary/40"
       )}>
         <div className="flex items-center justify-between mb-4">
-          <Badge className={statusStyles[match.status] || statusStyles.upcoming}>
-            {isLive && <span className="w-2 h-2 rounded-full bg-destructive-foreground mr-1.5" />}
-            {match.status.charAt(0).toUpperCase() + match.status.slice(1)}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            <Badge className={statusStyles[match.status] || statusStyles.upcoming}>
+              {isLive && <span className="w-2 h-2 rounded-full bg-destructive-foreground mr-1.5" />}
+              {match.status.charAt(0).toUpperCase() + match.status.slice(1)}
+            </Badge>
+            {hasTeam && (
+              <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px]">✓ Team</Badge>
+            )}
+          </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Calendar className="w-3 h-3" />
             {format(matchDate, 'MMM d, yyyy')}
