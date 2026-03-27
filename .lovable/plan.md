@@ -1,37 +1,38 @@
 
 
-## Plan: Fix Team Save Confirmation & Live Score Updates
+## Plan: Fix Missing Profile & Improve Team Visibility
 
-### Problem 1: No visible confirmation after saving team
-The save shows a brief toast notification, but once it disappears there's no persistent indicator that the team is already saved. Users can't tell if their team was saved.
+### Investigation Results
+The logged-in user (`samspamspamsam16@gmail.com`) genuinely does **not** have a team saved for the live Quetta vs Karachi match. They have teams for Multan vs Islamabad and Peshawar vs Rawalpindi only. The "You didn't create a team" message is technically correct.
 
-**Fix**: On the upcoming match team selection view, when `existingTeam` exists, show a persistent "Team Saved ✓" banner above the save button. Change the save button text to "Update Team" when editing an existing team.
+Additionally, this user has **no profile record** — the `handle_new_user` trigger likely failed during signup.
 
-**File**: `src/pages/MatchDetail.tsx`
-- Add a green confirmation banner when `existingTeam` is truthy and match is upcoming
-- Change save button label from "Save Team" to "Update Team" when editing
+### Root Causes
+1. **No visual indicator on match cards** showing which matches already have a saved team — easy to lose track
+2. **Missing profile** for some users when the trigger fails silently
+3. **No helpful guidance** when viewing a live match without a team
 
----
+### Changes
 
-### Problem 2: Live scores not updating — no valid external IDs
-The live match (Quetta Gladiators vs Karachi Kings) has `external_id = '81ea634d-...'` which is a self-generated UUID, not a real CricAPI match ID. Both `cricbuzz_match_id` and `espn_match_id` are NULL. The sync function tries to fetch from CricAPI using this fake ID, gets "Failed to fetch after 3 attempts", and gives up.
+#### 1. Add "Team Created ✓" badge on match cards (`src/pages/Index.tsx`)
+- Query all `user_teams` for the logged-in user
+- Show a small green "✓ Team" badge on match cards where a team exists
+- Helps users instantly see which matches they've prepared for
 
-**Fix**: Add an auto-discovery step at the top of `sync-live-scores` that:
-1. For any live match missing valid CricAPI/Cricbuzz/ESPN IDs, queries the CricAPI `currentMatches` endpoint
-2. Fuzzy-matches by team names to find the real CricAPI match ID
-3. Updates the match record with the real `external_id` (and optionally `cricbuzz_match_id`)
-4. Then proceeds with the normal score fetch
+#### 2. Auto-create missing profile in AuthContext (`src/contexts/AuthContext.tsx`)
+- After auth state resolves, check if profile exists
+- If not, insert one using the user's email prefix as username
+- Prevents silent profile creation failures from breaking the app
 
-This is a ~30-line addition to `sync-live-scores/index.ts`, inserted right after the auto-transition block and before the live matches query.
+#### 3. Improve "no team" message on live matches (`src/pages/MatchDetail.tsx`)
+- Change "You didn't create a team for this match" to something more helpful
+- Add context like "Teams must be created before the match starts"
 
-**File**: `supabase/functions/sync-live-scores/index.ts`
-
----
-
-### Summary
+### Files
 
 | Action | File | What |
 |--------|------|------|
-| Edit | `src/pages/MatchDetail.tsx` | Add persistent "Team Saved" banner + "Update Team" button label |
-| Edit | `supabase/functions/sync-live-scores/index.ts` | Auto-discover real CricAPI match IDs for live matches |
+| Edit | `src/pages/Index.tsx` | Add "Team Created" badge on match cards |
+| Edit | `src/contexts/AuthContext.tsx` | Auto-create missing profile on login |
+| Edit | `src/pages/MatchDetail.tsx` | Improve no-team message for live matches |
 
