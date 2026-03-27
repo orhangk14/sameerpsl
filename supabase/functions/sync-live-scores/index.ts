@@ -88,12 +88,7 @@ Deno.serve(async (req) => {
           scorecard = await tryCricbuzz(match.cricbuzz_match_id, match, supabase);
         }
 
-        // 2. ESPN Cricinfo (free, no key)
-        if (!scorecard && match.espn_match_id) {
-          scorecard = await tryESPN(match.espn_match_id, match);
-        }
-
-        // 3. CricAPI (paid, currently has SSL issues)
+        // 2. CricAPI fallback (currently has SSL issues from this environment)
         if (!scorecard && CRICAPI_KEY && match.external_id) {
           scorecard = await tryCricAPI(CRICAPI_KEY, match.external_id, match, supabase);
         }
