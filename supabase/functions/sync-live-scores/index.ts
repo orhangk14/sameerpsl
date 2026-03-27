@@ -275,8 +275,7 @@ async function tryCricbuzz(
   try {
     if (!supabase) return null;
     
-    // Use the mini-scorecard page which is much lighter than the full scorecard
-    console.log(`Cricbuzz: fetching mini score for ID ${cricbuzzId}`);
+    console.log(`Cricbuzz: fetching live score page for ID ${cricbuzzId}`);
     const { data: html, error } = await supabase.rpc("http_get_text", {
       target_url: `https://www.cricbuzz.com/live-cricket-scores/${cricbuzzId}`
     });
@@ -290,29 +289,45 @@ async function tryCricbuzz(
     }
     console.log(`Cricbuzz: got ${html.length} chars`);
 
-    // Extract scores from the page
     let teamAScore: string | null = null;
     let teamBScore: string | null = null;
-    const matchEnded = html.includes('"state":"Complete"') || html.includes(' won by ') || html.includes('"matchCompleted":true');
     const players: PlayerStats[] = [];
 
-    // Look for score patterns in RSC data: "runs":N,"wickets":N,"overs":N
-    const scoreBlocks: string[] = [];
-    const scoreRegex = /"runs":(\d+),"wickets":(\d+),"overs":([\d.]+)/g;
+    // Check match state — RSC uses escaped quotes: \"state\":\"Complete\"
+    const matchEnded = html.includes('\\"state\\":\\"Complete\\"') || 
+                       html.includes('"state":"Complete"') ||
+                       html.includes(' won by ');
+
+    // Extract innings scores from RSC: \"score\":89,\"wickets\":3,\"overs\":9.3
+    // Also try unescaped format
+    const scoreRegex = /\\?"score\\?":\s*(\d+)\s*,\s*\\?"wickets\\?":\s*(\d+)\s*,\s*\\?"overs\\?":\s*([\d.]+)/g;
+    const seenScores = new Set<string>();
     let sm;
     while ((sm = scoreRegex.exec(html)) !== null) {
-      scoreBlocks.push(`${sm[1]}/${sm[2]} (${sm[3]})`);
+      const key = `${sm[1]}/${sm[2]}/${sm[3]}`;
+      if (seenScores.has(key)) continue;
+      seenScores.add(key);
+      const score = `${sm[1]}/${sm[2]} (${sm[3]})`;
+      if (!teamAScore) {
+        teamAScore = score;
+      } else if (!teamBScore) {
+        teamBScore = score;
+      }
     }
-    
-    if (scoreBlocks.length >= 1) teamAScore = scoreBlocks[0];
-    if (scoreBlocks.length >= 2) teamBScore = scoreBlocks[1];
 
-    // Fallback: simple score pattern
+    // Fallback: extract from title/meta: "KRK 88/3 (9.2)"
     if (!teamAScore) {
-      const simpleRegex = /(\d{1,3})\/(\d{1,2})\s*\((\d{1,2}\.?\d?)\s*ov/g;
-      const simpleMatches = [...html.matchAll(simpleRegex)];
-      if (simpleMatches.length >= 1) teamAScore = `${simpleMatches[0][1]}/${simpleMatches[0][2]} (${simpleMatches[0][3]})`;
-      if (simpleMatches.length >= 2) teamBScore = `${simpleMatches[1][1]}/${simpleMatches[1][2]} (${simpleMatches[1][3]})`;
+      const titleRegex = /(\w+)\s+(\d+)\/(\d+)\s*\(([\d.]+)\)/g;
+      let tm;
+      while ((tm = titleRegex.exec(html)) !== null) {
+        const score = `${tm[2]}/${tm[3]} (${tm[4]})`;
+        if (!teamAScore) {
+          teamAScore = score;
+        } else if (!teamBScore && score !== teamAScore) {
+          teamBScore = score;
+          break;
+        }
+      }
     }
 
     if (!teamAScore && !teamBScore) {
@@ -320,8 +335,10 @@ async function tryCricbuzz(
       return null;
     }
 
-    // Extract batsmen stats if available in RSC data
-    const batRegex = /"batName":"([^"]+)"[^}]*?"runs":(\d+)[^}]*?"balls":(\d+)[^}]*?"fours":(\d+)[^}]*?"sixes":(\d+)/g;
+    // Extract current batsmen from miniscore RSC data:
+    // "batsmanStriker":{"id":1739,"name":"David Warner","runs":34,"balls":20,"fours":4,"sixes":1
+    // Both escaped and unescaped formats
+    const batRegex = /\\?"(?:batsmanStriker|batsmanNonStriker)\\?":\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"[^}]*?\\?"runs\\?":\s*(\d+)[^}]*?\\?"balls\\?":\s*(\d+)[^}]*?\\?"fours\\?":\s*(\d+)[^}]*?\\?"sixes\\?":\s*(\d+)/g;
     let bm;
     while ((bm = batRegex.exec(html)) !== null) {
       if (bm[1] && bm[1] !== "undefined") {
@@ -335,8 +352,9 @@ async function tryCricbuzz(
       }
     }
 
-    // Extract bowler stats
-    const bowlRegex = /"bowlName":"([^"]+)"[^}]*?"overs":([\d.]+)[^}]*?"maidens":(\d+)[^}]*?"runs":(\d+)[^}]*?"wickets":(\d+)/g;
+    // Extract current bowlers from miniscore RSC data:
+    // "bowlerStriker":{"id":19074,"name":"Ahmed Daniyal","overs":2,...
+    const bowlRegex = /\\?"(?:bowlerStriker|bowlerNonStriker)\\?":\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"[^}]*?\\?"overs\\?":\s*([\d.]+)[^}]*?\\?"maidens\\?":\s*(\d+)[^}]*?\\?"runs\\?":\s*(\d+)[^}]*?\\?"wickets\\?":\s*(\d+)/g;
     let bwm;
     while ((bwm = bowlRegex.exec(html)) !== null) {
       if (bwm[1] && bwm[1] !== "undefined") {
@@ -346,6 +364,21 @@ async function tryCricbuzz(
           maidens: parseInt(bwm[3]) || 0,
           runsConceded: parseInt(bwm[4]) || 0,
           wickets: parseInt(bwm[5]) || 0,
+        });
+      }
+    }
+
+    // Also extract from lastWicket for dismissed batsmen: "lastWicket":"Saad Baig ... 30(23) - 87/3"
+    const lastWicketRegex = /\\?"lastWicket\\?":\s*\\?"([^"\\]+)\s+(\d+)\((\d+)\)/g;
+    let lwm;
+    while ((lwm = lastWicketRegex.exec(html)) !== null) {
+      const name = lwm[1].trim().replace(/\s+[cb]\s+.*/, '').trim();
+      if (name && name.length > 2) {
+        mergePlayer(players, {
+          name,
+          runs: parseInt(lwm[2]) || 0,
+          balls: parseInt(lwm[3]) || 0,
+          out: true,
         });
       }
     }
