@@ -1115,7 +1115,7 @@ async function fetchWithTimeout(url: string, timeoutMs: number, headers?: Record
   }
 }
 
-async function apiFetch(url: string, supabase?: any, retries = 2): Promise<any> {
+async function apiFetch(url: string, supabase?: any, retries = 0): Promise<any> {
   for (let i = 0; i <= retries; i++) {
     try {
       const resp = await fetchWithTimeout(url, 10000);
