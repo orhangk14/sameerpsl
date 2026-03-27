@@ -120,9 +120,11 @@ Deno.serve(async (req) => {
 
         // Update match scores
         const status = scorecard.matchEnded ? "completed" : "live";
+        const matchUpdate: any = { team_a_score: scorecard.teamAScore, team_b_score: scorecard.teamBScore, status };
+        if (scorecard.winningTeam) matchUpdate.winning_team = scorecard.winningTeam;
         await supabase
           .from("matches")
-          .update({ team_a_score: scorecard.teamAScore, team_b_score: scorecard.teamBScore, status })
+          .update(matchUpdate)
           .eq("id", match.id);
 
         // Update Playing XI (only CricAPI has this)
