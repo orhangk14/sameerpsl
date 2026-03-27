@@ -12,6 +12,7 @@ import Profile from "./pages/Profile.tsx";
 import Auth from "./pages/Auth.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AdminScores from "./pages/AdminScores.tsx";
+import ResetPassword from "./pages/ResetPassword.tsx";
 import ScrollToTop from "./components/ScrollToTop";
 
 const queryClient = new QueryClient();

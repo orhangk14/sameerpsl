@@ -8,7 +8,9 @@ import { toast } from 'sonner';
 import { Mail, Lock, User, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
 
 const Auth = () => {
-  const [isLogin, setIsLogin] = useState(true);
+  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
+  const isLogin = mode === 'login';
+  const isForgot = mode === 'forgot';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
