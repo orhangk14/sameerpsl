@@ -34,6 +34,7 @@ interface NormalizedScorecard {
   matchEnded: boolean;
   players: PlayerStats[];
   source: "cricapi" | "cricbuzz" | "espn";
+  winningTeam: string | null;
 }
 
 // ─── Main Handler ───────────────────────────────────────────────────────────
