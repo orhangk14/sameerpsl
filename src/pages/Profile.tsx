@@ -1,14 +1,22 @@
 import { Layout } from '@/components/Layout';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, Trophy, Target, Calendar, LogOut } from 'lucide-react';
+import { User, Trophy, Target, Calendar, LogOut, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { toast } from '@/hooks/use-toast';
 
 const Profile = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [editOpen, setEditOpen] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const { data: profile } = useQuery({
     queryKey: ['profile', user?.id],
