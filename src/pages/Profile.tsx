@@ -1,14 +1,22 @@
 import { Layout } from '@/components/Layout';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, Trophy, Target, Calendar, LogOut } from 'lucide-react';
+import { User, Trophy, Target, Calendar, LogOut, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { toast } from '@/hooks/use-toast';
 
 const Profile = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [editOpen, setEditOpen] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const { data: profile } = useQuery({
     queryKey: ['profile', user?.id],
@@ -50,6 +58,28 @@ const Profile = () => {
     enabled: !!user,
   });
 
+  const handleEditOpen = () => {
+    setNewUsername(profile?.username || '');
+    setEditOpen(true);
+  };
+
+  const handleSaveUsername = async () => {
+    if (!newUsername.trim() || !user) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ username: newUsername.trim() })
+      .eq('user_id', user.id);
+    setSaving(false);
+    if (error) {
+      toast({ title: 'Error', description: 'Failed to update username', variant: 'destructive' });
+    } else {
+      toast({ title: 'Updated', description: 'Username changed successfully' });
+      queryClient.invalidateQueries({ queryKey: ['profile', user.id] });
+      setEditOpen(false);
+    }
+  };
+
   const handleSignOut = async () => {
     await signOut();
     navigate('/auth');
@@ -62,7 +92,12 @@ const Profile = () => {
           <div className="w-20 h-20 rounded-full gradient-primary flex items-center justify-center mb-3">
             <User className="w-10 h-10 text-primary-foreground" />
           </div>
-          <h1 className="font-display font-black text-xl text-foreground">{profile?.username || 'Loading...'}</h1>
+          <h1 className="font-display font-black text-xl text-foreground flex items-center gap-2">
+            {profile?.username || 'Loading...'}
+            <button onClick={handleEditOpen} className="text-muted-foreground hover:text-primary transition-colors">
+              <Pencil className="w-4 h-4" />
+            </button>
+          </h1>
           <p className="text-sm text-muted-foreground">{user?.email}</p>
         </div>
 
@@ -120,6 +155,29 @@ const Profile = () => {
           <LogOut className="w-4 h-4 mr-2" /> Sign Out
         </Button>
       </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display">Edit Profile</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <label className="text-sm text-muted-foreground">Username</label>
+            <Input
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              placeholder="Enter new username"
+              maxLength={30}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveUsername} disabled={saving || !newUsername.trim()}>
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 };
