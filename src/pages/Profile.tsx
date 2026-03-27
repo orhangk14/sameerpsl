@@ -138,6 +138,7 @@ const Profile = () => {
               ['MOTM', '+30'],
               ['Captain bonus', '2x'],
               ['Vice-Captain bonus', '1.5x'],
+              ['Winning team player', '+5'],
             ].map(([action, pts]) => (
               <div key={action} className="flex justify-between">
                 <span className="text-muted-foreground">{action}</span>

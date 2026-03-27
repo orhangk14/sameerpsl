@@ -34,6 +34,26 @@ interface NormalizedScorecard {
   matchEnded: boolean;
   players: PlayerStats[];
   source: "cricapi" | "cricbuzz" | "espn";
+  winningTeam: string | null;
+}
+
+// ─── Extract winning team from status text ──────────────────────────────────
+function extractWinningTeam(statusText: string | undefined | null, teamA: string, teamB: string): string | null {
+  if (!statusText) return null;
+  const s = statusText.toLowerCase();
+  if (s.includes("won") || s.includes("beat")) {
+    const tA = teamA.toLowerCase();
+    const tB = teamB.toLowerCase();
+    // Check which team name appears before "won" or is mentioned as winner
+    if (s.includes(tA) && (s.indexOf(tA) < s.indexOf("won") || s.indexOf(tA) < s.indexOf("beat"))) return teamA;
+    if (s.includes(tB) && (s.indexOf(tB) < s.indexOf("won") || s.indexOf(tB) < s.indexOf("beat"))) return teamB;
+    // Fallback: check short names (first word)
+    const shortA = tA.split(" ")[0];
+    const shortB = tB.split(" ")[0];
+    if (s.includes(shortA) && s.indexOf(shortA) < Math.max(s.indexOf("won"), s.indexOf("beat"))) return teamA;
+    if (s.includes(shortB) && s.indexOf(shortB) < Math.max(s.indexOf("won"), s.indexOf("beat"))) return teamB;
+  }
+  return null;
 }
 
 // ─── Main Handler ───────────────────────────────────────────────────────────
@@ -100,9 +120,11 @@ Deno.serve(async (req) => {
 
         // Update match scores
         const status = scorecard.matchEnded ? "completed" : "live";
+        const matchUpdate: any = { team_a_score: scorecard.teamAScore, team_b_score: scorecard.teamBScore, status };
+        if (scorecard.winningTeam) matchUpdate.winning_team = scorecard.winningTeam;
         await supabase
           .from("matches")
-          .update({ team_a_score: scorecard.teamAScore, team_b_score: scorecard.teamBScore, status })
+          .update(matchUpdate)
           .eq("id", match.id);
 
         // Update Playing XI (only CricAPI has this)
@@ -244,7 +266,8 @@ async function tryCricAPI(
     }
 
     console.log(`CricAPI succeeded for match ${match.id}`);
-    return { teamAScore, teamBScore, matchEnded: !!m.matchEnded, players, source: "cricapi" };
+    const winningTeam = m.matchEnded ? extractWinningTeam(m.status, match.team_a, match.team_b) : null;
+    return { teamAScore, teamBScore, matchEnded: !!m.matchEnded, players, source: "cricapi", winningTeam };
   } catch (err) {
     console.log(`CricAPI failed for match ${match.id}:`, err);
     return null;
@@ -357,7 +380,14 @@ async function tryCricbuzz(
     }
 
     console.log(`Cricbuzz: scores ${teamAScore} / ${teamBScore}, ${players.length} players, ended=${matchEnded}`);
-    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz" };
+    // Extract winning team from status text in the HTML
+    let winningTeam: string | null = null;
+    if (matchEnded) {
+      const statusRegex = /\\?"status\\?":\s*\\?"([^"\\]+)\\?"/;
+      const statusMatch = html.match(statusRegex);
+      winningTeam = extractWinningTeam(statusMatch?.[1], match.team_a, match.team_b);
+    }
+    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam };
   } catch (err) {
     console.log(`Cricbuzz failed for match ${match.id}:`, err);
     return null;
@@ -542,7 +572,7 @@ function parseCricbuzzRSC(html: string, match: any): NormalizedScorecard | null 
       });
     }
 
-    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz" };
+    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam: null };
   } catch (_) {
     return null;
   }
@@ -606,7 +636,8 @@ function parseCricbuzzCommentary(data: any, match: any): NormalizedScorecard | n
       }
     }
 
-    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz" };
+    const winningTeam = matchEnded ? extractWinningTeam(matchHeader.status, match.team_a, match.team_b) : null;
+    return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam };
   } catch (_) {
     return null;
   }
@@ -639,7 +670,7 @@ function parseCricbuzzHTML(html: string, match: any): NormalizedScorecard | null
     }
   }
 
-  return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz" };
+  return { teamAScore, teamBScore, matchEnded, players, source: "cricbuzz", winningTeam: null };
 }
 
 // ─── Source 3: ESPN Cricinfo (Modern API) ──────────────────────────────────
@@ -713,7 +744,8 @@ async function tryESPNModern(
 
     if (!teamAScore && !teamBScore) return null;
     console.log(`ESPN modern API succeeded for match ${match.id}, found ${players.length} players`);
-    return { teamAScore, teamBScore, matchEnded, players, source: "espn" };
+    const winningTeam = matchEnded ? extractWinningTeam(matchInfo?.statusText || matchInfo?.status, match.team_a, match.team_b) : null;
+    return { teamAScore, teamBScore, matchEnded, players, source: "espn", winningTeam };
   } catch (err) {
     console.log(`ESPN modern API failed for match ${match.id}:`, err);
     return null;
@@ -774,7 +806,8 @@ async function tryESPNLegacy(
 
     if (!teamAScore && !teamBScore) return null;
     console.log(`ESPN legacy succeeded for match ${match.id}, found ${players.length} players`);
-    return { teamAScore, teamBScore, matchEnded, players, source: "espn" };
+    const winningTeam = matchEnded ? extractWinningTeam(data.match?.match_status_text || data.match?.result, match.team_a, match.team_b) : null;
+    return { teamAScore, teamBScore, matchEnded, players, source: "espn", winningTeam };
   } catch (err) {
     console.log(`ESPN legacy failed for match ${match.id}:`, err);
     return null;
@@ -815,7 +848,16 @@ async function computePlayerPoints(
 
     if (!dbPlayer) continue;
 
-    const points = calculatePoints(ps);
+    let points = calculatePoints(ps);
+
+    // +5 bonus for winning team players
+    if (scorecard.winningTeam && dbPlayer.team) {
+      const playerTeam = dbPlayer.team.toLowerCase();
+      const winTeam = scorecard.winningTeam.toLowerCase();
+      if (playerTeam === winTeam || playerTeam.includes(winTeam) || winTeam.includes(playerTeam)) {
+        points += 5;
+      }
+    }
 
     await supabase.from("match_player_points").upsert(
       { match_id: matchId, player_id: dbPlayer.id, points, data_source: scorecard.source },

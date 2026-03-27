@@ -37,9 +37,9 @@ const getBudget = (matchDate?: string) => {
 const MAX_PER_TEAM = 7;
 const ROLE_CONSTRAINTS: Record<PlayerRole, [number, number]> = {
   WK: [1, 4],
-  BAT: [3, 6],
+  BAT: [1, 6],
   AR: [1, 4],
-  BOWL: [3, 6],
+  BOWL: [1, 6],
 };
 const ROLE_FILTERS: (PlayerRole | 'ALL')[] = ['ALL', 'WK', 'BAT', 'AR', 'BOWL'];
 
