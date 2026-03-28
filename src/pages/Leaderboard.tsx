@@ -22,6 +22,7 @@ type SquadPlayer = {
   team: string;
   credits: number;
   points?: number;
+  breakdown?: any;
 };
 
 type LeaderboardEntry = {
@@ -207,26 +208,50 @@ const Leaderboard = () => {
         <p className="text-[11px] font-display font-semibold text-muted-foreground uppercase tracking-wider mb-2">
           <Users className="w-3 h-3 inline mr-1" />Squad ({expandedSquad.length} players)
         </p>
-        {expandedSquad.map(p => (
-          <div key={p.player_id} className="flex items-center gap-2 text-xs">
-            <Badge className={cn("text-[9px] px-1 py-0", roleColors[p.role] || 'bg-muted text-muted-foreground')}>
-              {p.role}
-            </Badge>
-            <span className="font-display font-semibold text-foreground flex-1 truncate">
-              {p.name}
-              {entry.captainId === p.player_id && (
-                <span className="ml-1 text-[9px] px-1 py-0.5 rounded gradient-gold text-secondary-foreground font-bold">C</span>
+        {expandedSquad.map(p => {
+          const isCaptain = entry.captainId === p.player_id;
+          const isVC = entry.viceCaptainId === p.player_id;
+          const basePts = p.points;
+          const multipliedPts = basePts !== undefined
+            ? (isCaptain ? basePts * 2 : isVC ? basePts * 1.5 : basePts)
+            : undefined;
+          return (
+            <div key={p.player_id} className="space-y-1">
+              <div className="flex items-center gap-2 text-xs">
+                <Badge className={cn("text-[9px] px-1 py-0", roleColors[p.role] || 'bg-muted text-muted-foreground')}>
+                  {p.role}
+                </Badge>
+                <span className="font-display font-semibold text-foreground flex-1 truncate">
+                  {p.name}
+                  {isCaptain && (
+                    <span className="ml-1 text-[9px] px-1 py-0.5 rounded gradient-gold text-secondary-foreground font-bold">C</span>
+                  )}
+                  {isVC && (
+                    <span className="ml-1 text-[9px] px-1 py-0.5 rounded gradient-primary text-primary-foreground font-bold">VC</span>
+                  )}
+                </span>
+                <span className="text-muted-foreground">{p.team}</span>
+                {multipliedPts !== undefined && (
+                  <span className="font-display font-bold text-primary">
+                    {Math.round(multipliedPts)}pts
+                    {(isCaptain || isVC) && (
+                      <span className="text-[8px] text-muted-foreground ml-0.5">({basePts}×{isCaptain ? '2' : '1.5'})</span>
+                    )}
+                  </span>
+                )}
+              </div>
+              {p.breakdown && (
+                <div className="flex flex-wrap gap-1 ml-7">
+                  {p.breakdown.batting !== 0 && <span className="text-[8px] px-1 py-0 rounded bg-secondary/10 text-secondary">Bat:{p.breakdown.batting}</span>}
+                  {p.breakdown.bowling !== 0 && <span className="text-[8px] px-1 py-0 rounded bg-primary/10 text-primary">Bowl:{p.breakdown.bowling}</span>}
+                  {p.breakdown.fielding !== 0 && <span className="text-[8px] px-1 py-0 rounded bg-accent/10 text-accent-foreground">Field:{p.breakdown.fielding}</span>}
+                  {(p.breakdown.winning_bonus || 0) > 0 && <span className="text-[8px] px-1 py-0 rounded bg-primary/10 text-primary">Win:+5</span>}
+                  {(p.breakdown.motm_bonus || 0) > 0 && <span className="text-[8px] px-1 py-0 rounded bg-secondary/10 text-secondary">MOTM:+30</span>}
+                </div>
               )}
-              {entry.viceCaptainId === p.player_id && (
-                <span className="ml-1 text-[9px] px-1 py-0.5 rounded gradient-primary text-primary-foreground font-bold">VC</span>
-              )}
-            </span>
-            <span className="text-muted-foreground">{p.team}</span>
-            {p.points !== undefined && (
-              <span className="font-display font-bold text-primary">{p.points}pts</span>
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     );
   };
