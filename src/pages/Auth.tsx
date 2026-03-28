@@ -7,6 +7,25 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Mail, Lock, User, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
 
+const AUTH_TIMEOUT_MS = 15000;
+
+const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timed out. Please check your connection and try again.')), ms)
+    ),
+  ]);
+};
+
+const clearStaleSession = () => {
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('sb-'))
+      .forEach(k => localStorage.removeItem(k));
+  } catch (_) {}
+};
+
 const Auth = () => {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
   const isLogin = mode === 'login';
@@ -18,7 +37,6 @@ const Auth = () => {
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
   const [checkingUsername, setCheckingUsername] = useState(false);
 
-  // Debounced username availability check
   useEffect(() => {
     if (isLogin || username.length < 3) {
       setUsernameAvailable(null);
@@ -27,12 +45,16 @@ const Auth = () => {
 
     setCheckingUsername(true);
     const timer = setTimeout(async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('username', username)
-        .maybeSingle();
-      setUsernameAvailable(!data);
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('username', username)
+          .maybeSingle();
+        setUsernameAvailable(!data);
+      } catch {
+        setUsernameAvailable(null);
+      }
       setCheckingUsername(false);
     }, 500);
 
@@ -45,14 +67,20 @@ const Auth = () => {
 
     try {
       if (isForgot) {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/reset-password`,
-        });
+        const { error } = await withTimeout(
+          supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/reset-password`,
+          }),
+          AUTH_TIMEOUT_MS
+        );
         if (error) throw error;
         toast.success('Password reset link sent! Check your email. 📧');
         setMode('login');
       } else if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await withTimeout(
+          supabase.auth.signInWithPassword({ email, password }),
+          AUTH_TIMEOUT_MS
+        );
         if (error) throw error;
         toast.success('Welcome back! 🏏');
       } else {
@@ -62,19 +90,28 @@ const Auth = () => {
           return;
         }
 
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: { username },
-            emailRedirectTo: window.location.origin,
-          },
-        });
+        const { error } = await withTimeout(
+          supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              data: { username },
+              emailRedirectTo: window.location.origin,
+            },
+          }),
+          AUTH_TIMEOUT_MS
+        );
         if (error) throw error;
         toast.success('Account created! You are now signed in. 🏏');
       }
     } catch (error: any) {
-      toast.error(error.message);
+      const msg = error?.message || 'Something went wrong';
+      if (msg.includes('Failed to fetch') || msg.includes('timed out')) {
+        clearStaleSession();
+        toast.error('Connection failed. Stale session cleared — please try again.');
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
