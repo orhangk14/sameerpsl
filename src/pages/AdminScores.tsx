@@ -249,6 +249,10 @@ export default function AdminScores() {
                 {saving ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                 {saving ? 'Saving...' : 'Save & Recalculate Points'}
               </Button>
+              <Button variant="outline" onClick={retrySyncLiveScores} disabled={syncing}>
+                {syncing ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                {syncing ? 'Syncing...' : 'Retry Live Sync'}
+              </Button>
             </div>
           </>
         )}

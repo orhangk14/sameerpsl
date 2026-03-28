@@ -1094,7 +1094,7 @@ const PSL_TEAM_KEYWORDS: Record<string, string[]> = {
   "Islamabad": ["islamabad", "united"],
   "Peshawar": ["peshawar", "zalmi"],
   "Multan": ["multan", "sultans"],
-  "Rawalpindi": ["rawalpindi", "raiders"],
+  "Rawalpindi": ["rawalpindi", "raiders", "pindiz"],
 };
 
 function teamMatchesKeywords(teamName: string, target: string): boolean {
