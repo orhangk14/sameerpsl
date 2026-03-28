@@ -87,15 +87,15 @@ const fallbackToPlayer = (fp: FallbackPlayer): Player => ({
 
 // ─── Live Scoreboard Components ─────────────────────────────────────────────
 
-const LiveMyTeam = ({ players, captainId, viceCaptainId }: { players: Player[]; captainId: string | null; viceCaptainId: string | null }) => {
+const LiveMyTeam = ({ players, captainId, viceCaptainId, matchPoints }: { players: Player[]; captainId: string | null; viceCaptainId: string | null; matchPoints: Map<string, { points: number; breakdown: any }> }) => {
   const totalPoints = useMemo(() => {
     return players.reduce((sum, p) => {
-      let pts = p.points;
+      let pts = matchPoints.get(p.id)?.points ?? p.points;
       if (p.id === captainId) pts *= 2;
       else if (p.id === viceCaptainId) pts *= 1.5;
       return sum + pts;
     }, 0);
-  }, [players, captainId, viceCaptainId]);
+  }, [players, captainId, viceCaptainId, matchPoints]);
 
   const sorted = useMemo(() => {
     const roleOrder: Record<string, number> = { WK: 0, BAT: 1, AR: 2, BOWL: 3 };
@@ -112,24 +112,40 @@ const LiveMyTeam = ({ players, captainId, viceCaptainId }: { players: Player[]; 
         {sorted.map(player => {
           const isCaptain = player.id === captainId;
           const isVC = player.id === viceCaptainId;
-          const multipliedPts = isCaptain ? player.points * 2 : isVC ? player.points * 1.5 : player.points;
+          const mpData = matchPoints.get(player.id);
+          const basePts = mpData?.points ?? player.points;
+          const multipliedPts = isCaptain ? basePts * 2 : isVC ? basePts * 1.5 : basePts;
+          const bd = mpData?.breakdown;
           return (
-            <div key={player.id} className="flex items-center gap-3 gradient-card rounded-lg border border-border p-3">
-              <Badge className={cn("text-[10px] shrink-0", ROLE_COLORS[player.role])}>{player.role}</Badge>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <p className="font-display font-semibold text-sm truncate text-foreground">{player.name}</p>
-                  {isCaptain && <Badge className="bg-secondary text-secondary-foreground text-[9px] px-1 py-0">C</Badge>}
-                  {isVC && <Badge variant="outline" className="text-[9px] px-1 py-0 border-secondary text-secondary">VC</Badge>}
+            <div key={player.id} className="gradient-card rounded-lg border border-border p-3">
+              <div className="flex items-center gap-3">
+                <Badge className={cn("text-[10px] shrink-0", ROLE_COLORS[player.role])}>{player.role}</Badge>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-display font-semibold text-sm truncate text-foreground">{player.name}</p>
+                    {isCaptain && <Badge className="bg-secondary text-secondary-foreground text-[9px] px-1 py-0">C</Badge>}
+                    {isVC && <Badge variant="outline" className="text-[9px] px-1 py-0 border-secondary text-secondary">VC</Badge>}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">{player.team}</p>
                 </div>
-                <p className="text-[10px] text-muted-foreground">{player.team}</p>
+                <div className="text-right shrink-0">
+                  <p className="font-display font-bold text-sm text-foreground">{Math.round(multipliedPts)}</p>
+                  {(isCaptain || isVC) && (
+                    <p className="text-[9px] text-muted-foreground">{basePts} × {isCaptain ? '2' : '1.5'}</p>
+                  )}
+                </div>
               </div>
-              <div className="text-right shrink-0">
-                <p className="font-display font-bold text-sm text-foreground">{Math.round(multipliedPts)}</p>
-                {(isCaptain || isVC) && (
-                  <p className="text-[9px] text-muted-foreground">{player.points} × {isCaptain ? '2' : '1.5'}</p>
-                )}
-              </div>
+              {bd && (
+                <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-border">
+                  {bd.batting !== 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-secondary/10 text-secondary font-display">Bat: {bd.batting}</span>}
+                  {bd.bowling !== 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-display">Bowl: {bd.bowling}</span>}
+                  {bd.fielding !== 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/10 text-accent-foreground font-display">Field: {bd.fielding}</span>}
+                  {(bd.sr_bonus || 0) !== 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-display">SR: {bd.sr_bonus > 0 ? '+' : ''}{bd.sr_bonus}</span>}
+                  {(bd.er_bonus || 0) !== 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-display">ER: {bd.er_bonus > 0 ? '+' : ''}{bd.er_bonus}</span>}
+                  {(bd.winning_bonus || 0) > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-display">Win: +{bd.winning_bonus}</span>}
+                  {(bd.motm_bonus || 0) > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-secondary/10 text-secondary font-display">MOTM: +{bd.motm_bonus}</span>}
+                </div>
+              )}
             </div>
           );
         })}
@@ -281,6 +297,29 @@ const MatchDetail = () => {
   useEffect(() => {
     setUsingFallback(dbPlayers.length === 0 && allPlayers.length > 0);
   }, [dbPlayers.length, allPlayers.length]);
+
+  // Fetch match-specific player points for live/completed matches
+  const { data: matchPlayerPoints = [] } = useQuery({
+    queryKey: ['match-player-points', id],
+    enabled: !!id && (match?.status === 'live' || match?.status === 'completed'),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('match_player_points')
+        .select('player_id, points, breakdown')
+        .eq('match_id', id!);
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: match?.status === 'live' ? 10000 : undefined,
+  });
+
+  const matchPointsMap = useMemo(() => {
+    const m = new Map<string, { points: number; breakdown: any }>();
+    for (const mp of matchPlayerPoints) {
+      m.set(mp.player_id, { points: mp.points, breakdown: mp.breakdown });
+    }
+    return m;
+  }, [matchPlayerPoints]);
 
   const { data: existingTeam } = useQuery({
     queryKey: ['user-team', id],
@@ -529,7 +568,7 @@ const MatchDetail = () => {
             </TabsList>
 
             <TabsContent value="my-team">
-              <LiveMyTeam players={selectedPlayers} captainId={captain} viceCaptainId={viceCaptain} />
+              <LiveMyTeam players={selectedPlayers} captainId={captain} viceCaptainId={viceCaptain} matchPoints={matchPointsMap} />
               <Button
                 onClick={() => setShowPreview(true)}
                 variant="outline"
@@ -556,22 +595,26 @@ const MatchDetail = () => {
                 ))}
               </div>
               <div className="space-y-2">
-                {filteredPlayers.map(player => (
-                  <PlayerCard
-                    key={player.id}
-                    player={player}
-                    roleColors={ROLE_COLORS}
-                    selected={selected.has(player.id)}
-                    isCaptain={captain === player.id}
-                    isViceCaptain={viceCaptain === player.id}
-                    onSelect={() => {}}
-                    onCaptain={() => {}}
-                    onViceCaptain={() => {}}
-                    disabled={true}
-                    isLocked={true}
-                    showPoints={true}
-                  />
-                ))}
+                {filteredPlayers.map(player => {
+                  const mpPts = matchPointsMap.get(player.id);
+                  const displayPlayer = mpPts ? { ...player, points: mpPts.points } : player;
+                  return (
+                    <PlayerCard
+                      key={player.id}
+                      player={displayPlayer}
+                      roleColors={ROLE_COLORS}
+                      selected={selected.has(player.id)}
+                      isCaptain={captain === player.id}
+                      isViceCaptain={viceCaptain === player.id}
+                      onSelect={() => {}}
+                      onCaptain={() => {}}
+                      onViceCaptain={() => {}}
+                      disabled={true}
+                      isLocked={true}
+                      showPoints={true}
+                    />
+                  );
+                })}
               </div>
             </TabsContent>
 

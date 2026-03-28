@@ -1,0 +1,1 @@
+ALTER TABLE public.match_player_points ADD COLUMN IF NOT EXISTS breakdown jsonb DEFAULT NULL;

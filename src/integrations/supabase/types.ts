@@ -72,6 +72,7 @@ export type Database = {
       }
       match_player_points: {
         Row: {
+          breakdown: Json | null
           data_source: string | null
           id: string
           match_id: string
@@ -79,6 +80,7 @@ export type Database = {
           points: number
         }
         Insert: {
+          breakdown?: Json | null
           data_source?: string | null
           id?: string
           match_id: string
@@ -86,6 +88,7 @@ export type Database = {
           points?: number
         }
         Update: {
+          breakdown?: Json | null
           data_source?: string | null
           id?: string
           match_id?: string

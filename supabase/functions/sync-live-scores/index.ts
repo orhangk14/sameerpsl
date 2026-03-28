@@ -24,8 +24,11 @@ interface PlayerStats {
   runsConceded?: number;
   maidens?: number;
   catches?: number;
-  runOuts?: number;
+  directRunOuts?: number;
+  indirectRunOuts?: number;
   stumpings?: number;
+  // Legacy compat
+  runOuts?: number;
 }
 
 interface NormalizedScorecard {
@@ -475,27 +478,30 @@ function parseScorecardPlayers(html: string): PlayerStats[] {
 
 // ─── Extract fielding credits from dismissal descriptions ───
 function extractFieldingFromOutDesc(players: PlayerStats[], outDesc: string) {
-  // Catch: "c FielderName b BowlerName" or "c & b BowlerName"
-  const catchMatch = outDesc.match(/^c\s+(.+?)\s+b\s+/);
-  if (catchMatch) {
-    const fielder = catchMatch[1].trim();
-    // "c & b" means bowler caught it themselves — skip separate fielder credit
-    if (fielder !== "&" && fielder.length > 1) {
-      mergePlayer(players, { name: fielder, catches: 1 });
-    }
-  }
+  // Remove keeper dagger symbol: "c †PlayerName b Bowler" → "c PlayerName b Bowler"
+  const cleaned = outDesc.replace(/†/g, '').trim();
 
-  // "c & b BowlerName" — bowler gets the catch
-  const cAndBMatch = outDesc.match(/^c & b\s+(.+)/);
+  // "c & b BowlerName" — bowler gets the catch (must check before generic catch)
+  const cAndBMatch = cleaned.match(/^c\s*&\s*b\s+(.+)/);
   if (cAndBMatch) {
     const bowler = cAndBMatch[1].trim();
     if (bowler.length > 1) {
       mergePlayer(players, { name: bowler, catches: 1 });
     }
+    return; // Don't double-count
+  }
+
+  // Catch: "c FielderName b BowlerName"
+  const catchMatch = cleaned.match(/^c\s+(.+?)\s+b\s+/);
+  if (catchMatch) {
+    const fielder = catchMatch[1].trim();
+    if (fielder !== "&" && fielder.length > 1) {
+      mergePlayer(players, { name: fielder, catches: 1 });
+    }
   }
 
   // Stumping: "st FielderName b BowlerName"
-  const stumpMatch = outDesc.match(/^st\s+(.+?)\s+b\s+/);
+  const stumpMatch = cleaned.match(/^st\s+(.+?)\s+b\s+/);
   if (stumpMatch) {
     const keeper = stumpMatch[1].trim();
     if (keeper.length > 1) {
@@ -504,18 +510,20 @@ function extractFieldingFromOutDesc(players: PlayerStats[], outDesc: string) {
   }
 
   // Run out: "run out (FielderName)" or "run out (Fielder1/Fielder2)"
-  const runOutMatch = outDesc.match(/run out\s*\(([^)]+)\)/);
+  const runOutMatch = cleaned.match(/run out\s*\(([^)]+)\)/);
   if (runOutMatch) {
     const fielderStr = runOutMatch[1].trim();
     const fielders = fielderStr.split('/').map(f => f.trim()).filter(f => f.length > 1);
     if (fielders.length === 1) {
-      // Direct run out
-      mergePlayer(players, { name: fielders[0], runOuts: 1 });
+      // Direct run out: +12
+      mergePlayer(players, { name: fielders[0], directRunOuts: 1 });
     } else if (fielders.length >= 2) {
-      // First fielder = direct hit (gets runOut), others involved too
-      mergePlayer(players, { name: fielders[0], runOuts: 1 });
-      // Second fielder contributed but indirect — still credit a runOut
-      mergePlayer(players, { name: fielders[1], runOuts: 1 });
+      // Last fielder = direct hit (+12), others = indirect (+6)
+      const lastIdx = fielders.length - 1;
+      mergePlayer(players, { name: fielders[lastIdx], directRunOuts: 1 });
+      for (let i = 0; i < lastIdx; i++) {
+        mergePlayer(players, { name: fielders[i], indirectRunOuts: 1 });
+      }
     }
   }
 }
@@ -875,14 +883,16 @@ async function computePlayerPoints(
 
     if (!dbPlayer) continue;
 
-    let points = calculatePoints(ps);
+    const bd = calculatePointsWithBreakdown(ps);
+    let winBonus = 0;
+    let motmBonus = 0;
 
     // +5 bonus for winning team players
     if (scorecard.winningTeam && dbPlayer.team) {
       const playerTeam = dbPlayer.team.toLowerCase();
       const winTeam = scorecard.winningTeam.toLowerCase();
       if (playerTeam === winTeam || playerTeam.includes(winTeam) || winTeam.includes(playerTeam)) {
-        points += 5;
+        winBonus = 5;
       }
     }
 
@@ -890,13 +900,16 @@ async function computePlayerPoints(
     if (scorecard.playerOfTheMatch) {
       const motmNorm = normalizeName(scorecard.playerOfTheMatch);
       if (normalizedPs === motmNorm || normalizedPs.includes(motmNorm) || motmNorm.includes(normalizedPs)) {
-        points += 30;
+        motmBonus = 30;
         console.log(`MOTM bonus +30 applied to ${ps.name}`);
       }
     }
 
+    const totalPoints = bd.total + winBonus + motmBonus;
+    const breakdown = { ...bd, winning_bonus: winBonus, motm_bonus: motmBonus, total: totalPoints };
+
     await supabase.from("match_player_points").upsert(
-      { match_id: matchId, player_id: dbPlayer.id, points, data_source: scorecard.source },
+      { match_id: matchId, player_id: dbPlayer.id, points: totalPoints, data_source: scorecard.source, breakdown },
       { onConflict: "match_id,player_id" }
     );
 
@@ -904,18 +917,30 @@ async function computePlayerPoints(
       .from("match_player_points")
       .select("points")
       .eq("player_id", dbPlayer.id);
-    const totalPoints = (allMatchPoints || []).reduce((sum: number, row: any) => sum + (row.points || 0), 0);
-    await supabase.from("players").update({ points: totalPoints, is_playing: true }).eq("id", dbPlayer.id);
+    const totalGlobal = (allMatchPoints || []).reduce((sum: number, row: any) => sum + (row.points || 0), 0);
+    await supabase.from("players").update({ points: totalGlobal, is_playing: true }).eq("id", dbPlayer.id);
   }
 }
 
 // ─── Points Calculation ─────────────────────────────────────────────────────
 
-function calculatePoints(ps: PlayerStats): number {
-  let points = 0;
+interface PointsBreakdown {
+  starting_xi: number;
+  batting: number;
+  bowling: number;
+  fielding: number;
+  sr_bonus: number;
+  er_bonus: number;
+  milestone: number;
+  total: number;
+}
 
-  // Starting XI bonus — every player in the scorecard gets +4
-  points += 4;
+function calculatePoints(ps: PlayerStats): number {
+  return calculatePointsWithBreakdown(ps).total;
+}
+
+function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
+  const bd: PointsBreakdown = { starting_xi: 4, batting: 0, bowling: 0, fielding: 0, sr_bonus: 0, er_bonus: 0, milestone: 0, total: 0 };
 
   const runs = ps.runs || 0;
   const balls = ps.balls || 1;
@@ -923,31 +948,25 @@ function calculatePoints(ps: PlayerStats): number {
   const sixes = ps.sixes || 0;
 
   if (runs > 0 || ps.out !== undefined) {
-    // Runs: +1 per run (already included via runs value)
-    points += runs;
-    // Fours: +4 bonus per boundary
-    points += fours * 4;
-    // Sixes: +6 bonus per six
-    points += sixes * 6;
+    bd.batting += runs;
+    bd.batting += fours * 4;
+    bd.batting += sixes * 6;
 
-    // Strike rate bonuses (min 10 balls)
     const sr = (runs / Math.max(balls, 1)) * 100;
     if (balls >= 10) {
-      if (sr > 170) points += 6;
-      else if (sr >= 150) points += 4;
-      else if (sr >= 130) points += 2;
-      else if (sr < 50) points -= 6;
-      else if (sr < 60) points -= 4;
-      else if (sr < 70) points -= 2;
+      if (sr > 170) bd.sr_bonus += 6;
+      else if (sr >= 150) bd.sr_bonus += 4;
+      else if (sr >= 130) bd.sr_bonus += 2;
+      else if (sr < 50) bd.sr_bonus -= 6;
+      else if (sr < 60) bd.sr_bonus -= 4;
+      else if (sr < 70) bd.sr_bonus -= 2;
     }
 
-    // Milestones
-    if (runs >= 100) points += 16;
-    else if (runs >= 50) points += 8;
-    else if (runs >= 25) points += 8;
+    if (runs >= 100) bd.milestone += 16;
+    else if (runs >= 50) bd.milestone += 8;
+    else if (runs >= 25) bd.milestone += 8;
 
-    // Duck
-    if (runs === 0 && ps.out) points -= 2;
+    if (runs === 0 && ps.out) bd.batting -= 2;
   }
 
   const wickets = ps.wickets || 0;
@@ -955,33 +974,33 @@ function calculatePoints(ps: PlayerStats): number {
   const runsConceded = ps.runsConceded || 0;
 
   if (wickets > 0 || overs > 0) {
-    // Wickets: +30 each
-    points += wickets * 30;
-    // Wicket haul bonuses
-    if (wickets >= 5) points += 16;
-    else if (wickets >= 4) points += 8;
-    else if (wickets >= 3) points += 4;
+    bd.bowling += wickets * 30;
+    if (wickets >= 5) bd.milestone += 16;
+    else if (wickets >= 4) bd.milestone += 8;
+    else if (wickets >= 3) bd.milestone += 4;
 
-    // Economy rate (min 2 overs)
     if (overs >= 2) {
       const economy = runsConceded / overs;
-      if (economy < 5) points += 6;
-      else if (economy < 6) points += 4;
-      else if (economy < 7) points += 2;
-      else if (economy > 12) points -= 6;
-      else if (economy > 11) points -= 4;
-      else if (economy > 10) points -= 2;
+      if (economy < 5) bd.er_bonus += 6;
+      else if (economy < 6) bd.er_bonus += 4;
+      else if (economy < 7) bd.er_bonus += 2;
+      else if (economy > 12) bd.er_bonus -= 6;
+      else if (economy > 11) bd.er_bonus -= 4;
+      else if (economy > 10) bd.er_bonus -= 2;
     }
-    // Maidens: +12
-    points += (ps.maidens || 0) * 12;
+    bd.bowling += (ps.maidens || 0) * 12;
   }
 
-  // Fielding
-  points += (ps.catches || 0) * 8;
-  points += (ps.runOuts || 0) * 12;
-  points += (ps.stumpings || 0) * 12;
+  // Fielding — direct run outs +12, indirect +6
+  bd.fielding += (ps.catches || 0) * 8;
+  bd.fielding += (ps.directRunOuts || 0) * 12;
+  bd.fielding += (ps.indirectRunOuts || 0) * 6;
+  // Legacy runOuts field (from CricAPI source) treated as direct
+  bd.fielding += (ps.runOuts || 0) * 12;
+  bd.fielding += (ps.stumpings || 0) * 12;
 
-  return points;
+  bd.total = bd.starting_xi + bd.batting + bd.bowling + bd.fielding + bd.sr_bonus + bd.er_bonus + bd.milestone;
+  return bd;
 }
 
 // ─── Points Recalculation ───────────────────────────────────────────────────
@@ -1283,6 +1302,8 @@ function mergePlayer(players: PlayerStats[], incoming: PlayerStats) {
       existing.maidens = (existing.maidens || 0) + (incoming.maidens || 0);
     }
     if (incoming.catches !== undefined) existing.catches = (existing.catches || 0) + (incoming.catches || 0);
+    if (incoming.directRunOuts !== undefined) existing.directRunOuts = (existing.directRunOuts || 0) + (incoming.directRunOuts || 0);
+    if (incoming.indirectRunOuts !== undefined) existing.indirectRunOuts = (existing.indirectRunOuts || 0) + (incoming.indirectRunOuts || 0);
     if (incoming.runOuts !== undefined) existing.runOuts = (existing.runOuts || 0) + (incoming.runOuts || 0);
     if (incoming.stumpings !== undefined) existing.stumpings = (existing.stumpings || 0) + (incoming.stumpings || 0);
   } else {
