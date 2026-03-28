@@ -229,14 +229,16 @@ async function recalculateFromSource(supabase: any, matchId: string) {
     }
     if (!dbPlayer) continue;
 
-    let points = calculatePoints(ps);
+    const bd = calculatePointsWithBreakdown(ps);
+    let winBonus = 0;
+    let motmBonus = 0;
 
     // +5 bonus for winning team players
     if (winningTeam && dbPlayer.team) {
       const playerTeam = dbPlayer.team.toLowerCase();
       const winTeam = winningTeam.toLowerCase();
       if (playerTeam === winTeam || playerTeam.includes(winTeam) || winTeam.includes(playerTeam)) {
-        points += 5;
+        winBonus = 5;
         winBonusApplied++;
       }
     }
@@ -245,14 +247,17 @@ async function recalculateFromSource(supabase: any, matchId: string) {
     if (playerOfTheMatch) {
       const motmNorm = normalizeName(playerOfTheMatch);
       if (normalizedPs === motmNorm || normalizedPs.includes(motmNorm) || motmNorm.includes(normalizedPs)) {
-        points += 30;
+        motmBonus = 30;
         motmBonusApplied++;
         console.log(`MOTM bonus +30 applied to ${ps.name}`);
       }
     }
 
+    const points = bd.total + winBonus + motmBonus;
+    const breakdown = { ...bd, winning_bonus: winBonus, motm_bonus: motmBonus, total: points };
+
     await supabase.from("match_player_points").upsert(
-      { match_id: matchId, player_id: dbPlayer.id, points, data_source: "cricbuzz-recalc" },
+      { match_id: matchId, player_id: dbPlayer.id, points, data_source: "cricbuzz-recalc", breakdown },
       { onConflict: "match_id,player_id" }
     );
 
@@ -508,6 +513,8 @@ function mergePlayer(players: PlayerStats[], incoming: PlayerStats) {
       existing.maidens = (existing.maidens || 0) + (incoming.maidens || 0);
     }
     if (incoming.catches !== undefined) existing.catches = (existing.catches || 0) + (incoming.catches || 0);
+    if (incoming.directRunOuts !== undefined) existing.directRunOuts = (existing.directRunOuts || 0) + (incoming.directRunOuts || 0);
+    if (incoming.indirectRunOuts !== undefined) existing.indirectRunOuts = (existing.indirectRunOuts || 0) + (incoming.indirectRunOuts || 0);
     if (incoming.runOuts !== undefined) existing.runOuts = (existing.runOuts || 0) + (incoming.runOuts || 0);
     if (incoming.stumpings !== undefined) existing.stumpings = (existing.stumpings || 0) + (incoming.stumpings || 0);
   } else {
