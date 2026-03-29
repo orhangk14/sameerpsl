@@ -1,55 +1,63 @@
 
-## Fix the infinite loading screen on app startup
+## Fix persistent startup loading caused by stale auth refresh
 
-### What’s actually happening
-The app is not rendering the home page because auth initialization gets stuck before `loading` is turned off.
-
-- `App.tsx` blocks all protected routes while `loading === true`
-- `AuthContext.tsx` starts with `loading = true`
-- `supabase.auth.getSession()` is called without error handling
-- the console/network logs show auth refresh requests failing with `AuthRetryableFetchError: Failed to fetch`
-- when that promise rejects, `setLoading(false)` never runs, so the whole app stays on the `Loading...` screen forever
+### What I found
+- The previous auth fix is already present in `src/contexts/AuthContext.tsx` (`catch` + `finally` around `getSession()`).
+- Despite that, the app still gets stuck on the app-level `Loading...` screen because route guards in `src/App.tsx` still block both `/` and `/auth` while `loading === true`.
+- Network logs show repeated refresh-token requests returning `504 upstream request timeout` / `Failed to fetch`.
+- That means the real issue is no longer “missing error handling”; it is that auth session recovery can hang or retry long enough that the app never leaves the loading gate.
 
 ### Root cause
-`src/contexts/AuthContext.tsx` only handles the success path for session recovery.  
-A failed refresh/network error leaves auth state unresolved indefinitely.
+A stale/broken stored session is triggering refresh-token recovery during startup.  
+While that recovery is hanging/failing, `AuthProvider` keeps `loading` true, and both `ProtectedRoute` and `AuthRoute` render the full-screen loading state instead of letting the user reach `/auth`.
 
 ### Implementation plan
 
-**1. Harden auth initialization**
-Update `src/contexts/AuthContext.tsx` so `getSession()` is wrapped in `try/catch/finally` (or `.catch(...).finally(...)`).
+**1. Harden auth initialization against hanging refreshes**  
+Update `src/contexts/AuthContext.tsx` so startup auth recovery is bounded:
+- keep the current `onAuthStateChange + getSession` pattern
+- wrap session initialization in a small timeout/failsafe
+- if session recovery hangs or throws, treat the user as signed out
+- always resolve `loading` to `false`
 
-Behavior:
-- if session loads successfully: keep current behavior
-- if refresh/session recovery fails: set `session` to `null`
-- always set `loading` to `false`
+Recommended behavior:
+- start listener first
+- race `getSession()` against a short timeout
+- on timeout/error, clear only the local session state and proceed unauthenticated
 
-This ensures the app falls back to the login page instead of hanging.
+**2. Clear broken local auth state without relying on the network**  
+When startup recovery fails, call a local-only sign-out/cleanup path so the app stops retrying the same bad refresh token on every render/load.
+- local cleanup only
+- no aggressive storage hacks
+- no await inside `onAuthStateChange`
 
-**2. Keep the existing auth pattern**
-Do not add aggressive local storage clearing or timeout hacks.  
-Stay with the current standard auth flow:
-- `onAuthStateChange`
-- `getSession`
-- graceful failure path
+This should let the app fall through to `/auth` immediately instead of staying on the loading overlay.
 
-**3. Add lightweight auth error visibility**
-Log the auth init failure clearly in `AuthContext` so future refresh failures are easier to diagnose without breaking the UI.
+**3. Keep route guards simple**
+`src/App.tsx` can stay mostly as-is once auth initialization reliably settles:
+- authenticated user → protected pages
+- unauthenticated user → `/auth`
+- loading shown only during a short, bounded startup window
+
+**4. Add lightweight diagnostics**
+Keep a clear console log for:
+- auth init timeout
+- auth init failure
+- local session cleanup triggered
+
+This will make future auth issues much easier to distinguish from page/query loading.
 
 ### Files to update
 - `src/contexts/AuthContext.tsx`
+- possibly `src/App.tsx` only if a small guard/refactor is needed after auth readiness is separated from session state
 
-### Expected result after fix
-When session refresh succeeds:
-- user goes into the app normally
-
-When refresh fails or the old token is stale:
-- loading screen ends
-- user is treated as signed out
-- protected routes redirect to `/auth`
-- app no longer gets stuck on the blank loading screen
+### Expected result
+- If refresh succeeds: user enters the app normally
+- If refresh token is stale/broken: app stops waiting, clears the bad local session, and routes to `/auth`
+- `/auth` becomes reachable again instead of being blocked behind infinite loading
 
 ### Verification
-1. Load the app with a valid session → home should render
-2. Load the app with a stale/broken session → app should redirect to `/auth`, not stay on `Loading...`
-3. Visit `/admin/scores` after sign-in → admin gate should still work normally
+1. Load with a valid session → app opens normally  
+2. Load with a stale/broken session → app reaches `/auth` instead of hanging  
+3. Refresh several times after a failed auth recovery → no repeated infinite loading loop  
+4. Sign in again after fallback → normal navigation resumes, including `/admin/scores`
