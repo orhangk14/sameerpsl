@@ -1,35 +1,55 @@
 
+## Fix the infinite loading screen on app startup
 
-## Fix Admin Edge Function Auth and Recalculate Match Points
+### What’s actually happening
+The app is not rendering the home page because auth initialization gets stuck before `loading` is turned off.
 
-### Problem
-1. The `admin-update-scores` edge function uses `anonClient.auth.getClaims()` which doesn't exist in the Supabase JS v2 SDK — it silently fails, preventing any admin actions (recalculate, manual saves) from working.
-2. Because recalculation never ran with the new code, all `match_player_points.breakdown` values are NULL — no batting/bowling/fielding breakdown chips appear in the UI.
-3. The C/VC multiplied totals in `user_teams.total_points` ARE correctly stored from the original sync, and the UI code in `LiveMyTeam` does apply multipliers correctly. The visual issue is likely that breakdowns are missing so users can't verify the math.
+- `App.tsx` blocks all protected routes while `loading === true`
+- `AuthContext.tsx` starts with `loading = true`
+- `supabase.auth.getSession()` is called without error handling
+- the console/network logs show auth refresh requests failing with `AuthRetryableFetchError: Failed to fetch`
+- when that promise rejects, `setLoading(false)` never runs, so the whole app stays on the `Loading...` screen forever
 
-### Plan
+### Root cause
+`src/contexts/AuthContext.tsx` only handles the success path for session recovery.  
+A failed refresh/network error leaves auth state unresolved indefinitely.
 
-**1. Fix edge function auth** (`supabase/functions/admin-update-scores/index.ts`)
-- Replace `getClaims(token)` with `getUser(token)` which is the correct Supabase JS v2 method
-- Extract email from `user.email` instead of `claims.email`
+### Implementation plan
 
-```typescript
-// Before (broken):
-const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
-const userEmail = claimsData.claims.email;
+**1. Harden auth initialization**
+Update `src/contexts/AuthContext.tsx` so `getSession()` is wrapped in `try/catch/finally` (or `.catch(...).finally(...)`).
 
-// After (correct):
-const { data: { user: authUser }, error: authError } = await anonClient.auth.getUser(token);
-const userEmail = authUser?.email;
-```
+Behavior:
+- if session loads successfully: keep current behavior
+- if refresh/session recovery fails: set `session` to `null`
+- always set `loading` to `false`
 
-**2. After deploying**, the admin can navigate to `/admin/scores`, select each completed match, and click "Recalculate from Cricbuzz" to populate breakdowns, apply win bonuses, and refresh all user team totals.
+This ensures the app falls back to the login page instead of hanging.
 
-### Files to change
-- `supabase/functions/admin-update-scores/index.ts` — fix auth from `getClaims` to `getUser` (~5 lines)
+**2. Keep the existing auth pattern**
+Do not add aggressive local storage clearing or timeout hacks.  
+Stay with the current standard auth flow:
+- `onAuthStateChange`
+- `getSession`
+- graceful failure path
 
-### What this unblocks
-- Admin panel becomes functional (save scores, recalculate, retry sync)
-- Recalculating the 2 completed matches will populate `breakdown` JSON, making batting/bowling/fielding/bonus chips visible in the UI
-- Existing C/VC multiplier logic in both backend and UI is already correct and does not need changes
+**3. Add lightweight auth error visibility**
+Log the auth init failure clearly in `AuthContext` so future refresh failures are easier to diagnose without breaking the UI.
 
+### Files to update
+- `src/contexts/AuthContext.tsx`
+
+### Expected result after fix
+When session refresh succeeds:
+- user goes into the app normally
+
+When refresh fails or the old token is stale:
+- loading screen ends
+- user is treated as signed out
+- protected routes redirect to `/auth`
+- app no longer gets stuck on the blank loading screen
+
+### Verification
+1. Load the app with a valid session → home should render
+2. Load the app with a stale/broken session → app should redirect to `/auth`, not stay on `Loading...`
+3. Visit `/admin/scores` after sign-in → admin gate should still work normally
