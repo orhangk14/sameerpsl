@@ -1,32 +1,36 @@
 
 
-## Add Player Aliases for Ahmad Daniyal and Farhan Yousuf
+## Fix Missing Per-Match Points for Ahmad Daniyal & Farhan Yousuf
 
 ### Problem
-Cricbuzz scorecards use different spellings than what's stored in the database:
-- **"Ahmed Daniyal"** on Cricbuzz vs **"Ahmad Daniyal"** in DB (player ID: `bb32a1f9-5967-4fc5-9598-83e5cc2f63b0`)
-- **"Farhan Yousaf"** on Cricbuzz vs **"Farhan Yousuf"** in DB (player ID: `07d7844f-361e-4af3-8553-6d2d4ba5ea87`)
+The aliases were added correctly, but recalculation was only run on one match. Two matches are still missing points:
 
-This causes the scoring engine to skip these players during scorecard processing, so they have 0 match points.
+| Player | Missing Match | Match ID |
+|--------|--------------|----------|
+| Ahmad Daniyal (Quetta) | Quetta vs Hyderabad | `bf0ef35b-bbf0-4afb-83d0-1e28e848d179` |
+| Farhan Yousuf (Peshawar) | Peshawar vs Rawalpindi | `e1b40bf5-96bb-408a-9d55-0e553068ac93` |
+
+The scoring engine logic is correct — each match stores separate `match_player_points` rows, and `players.points` is the sum across all matches. The `mergePlayer` function only merges stats within a single scorecard (batting + fielding for the same player), which is the correct behavior.
 
 ### Plan
 
-**Step 1 — Insert aliases via database migration**
+**Step 1 — Trigger recalculation for the 2 missing matches**
 
-Add two rows to the `player_aliases` table:
-- `alias: "Ahmed Daniyal"` → `player_id: bb32a1f9-...` (Ahmad Daniyal, Quetta)
-- `alias: "Farhan Yousaf"` → `player_id: 07d7844f-...` (Farhan Yousuf, Peshawar)
+Call the `admin-update-scores` edge function with `recalculate: true` for each missing match. This will:
+- Re-scrape the Cricbuzz scorecard
+- Resolve "Ahmed Daniyal" and "Farhan Yousaf" via the alias table
+- Create separate `match_player_points` rows with per-match breakdowns
+- Update global `players.points` as the correct sum
+- Recalculate user team totals and profile leaderboard points
 
-**Step 2 — Trigger recalculation**
+**Step 2 — Verify the results**
 
-After aliases are in place, use the admin panel's "Recalculate from Cricbuzz" button on the affected matches:
-- Match 2: Quetta vs Karachi Kings (`6c7bb16f-...`) — Ahmad Daniyal played
-- Match 3: Peshawar vs Rawalpindi (`e1b40bf5-...`) — Farhan Yousaf played
-- Match 5: Quetta vs Hyderabad (`bf0ef35b-...`) — Ahmad Daniyal played
+After recalculation, query the database to confirm:
+- Ahmad Daniyal has **2 separate** match_player_points rows (one per match) with correct breakdowns
+- Farhan Yousuf has **1** match_player_points row with correct breakdown
+- Global `players.points` equals the sum of individual match points
+- User team totals and profile leaderboard points are updated correctly
 
-This will re-scrape the scorecards and now correctly resolve the alias names to the right player IDs, populating their points.
-
-### Files
-- One SQL migration to insert the two alias rows
-- No code changes needed — the alias resolution system already works
+### No code changes needed
+The scoring engine already handles per-match isolation correctly. This is purely a data operation — triggering recalculation on the matches that were missed.
 
