@@ -4,7 +4,8 @@ import { Layout } from '@/components/Layout';
 import { MatchCard } from '@/components/MatchCard';
 import { MatchCardCompact } from '@/components/MatchCardCompact';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2 } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { addDays, isBefore } from 'date-fns';
@@ -17,7 +18,7 @@ const Index = () => {
   const autoSyncTriggered = useRef(false);
   const { user } = useAuth();
 
-  const { data: matches = [], isLoading } = useQuery({
+  const { data: matches = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['matches'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -28,6 +29,7 @@ const Index = () => {
       return data;
     },
     refetchInterval: 30000,
+    retry: 3,
   });
 
   // Auto-sync on first load if no matches
@@ -108,6 +110,13 @@ const Index = () => {
               <div className="flex flex-col items-center gap-2 py-8">
                 <Loader2 className="w-6 h-6 text-primary animate-spin" />
                 <p className="text-muted-foreground text-sm">Loading matches...</p>
+              </div>
+            ) : isError ? (
+              <div className="flex flex-col items-center gap-3 py-8">
+                <p className="text-muted-foreground text-sm">Couldn't load matches</p>
+                <Button variant="outline" size="sm" onClick={() => refetch()}>
+                  <RefreshCw className="w-4 h-4 mr-1" /> Retry
+                </Button>
               </div>
             ) : activeTab === 'upcoming' ? (
               <>
