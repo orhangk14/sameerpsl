@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -18,19 +18,30 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
+const AUTH_TIMEOUT_MS = 5000;
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const initialized = useRef(false);
 
   useEffect(() => {
+    const finishInit = (s: Session | null) => {
+      if (initialized.current) return;
+      initialized.current = true;
+      setSession(s);
+      setLoading(false);
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
-        setSession(session);
-        setLoading(false);
+        if (!initialized.current) {
+          finishInit(session);
+        } else {
+          setSession(session);
+        }
       }
     );
-
-    const AUTH_TIMEOUT_MS = 5000;
 
     const sessionPromise = supabase.auth.getSession();
     const timeoutPromise = new Promise<never>((_, reject) =>
@@ -39,20 +50,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     Promise.race([sessionPromise, timeoutPromise])
       .then(({ data: { session } }) => {
-        setSession(session);
+        finishInit(session);
       })
-      .catch(async (error) => {
+      .catch((error) => {
         console.error('Auth initialization error:', error);
-        setSession(null);
-        try {
-          await supabase.auth.signOut({ scope: 'local' });
-          console.warn('Cleared stale local auth session');
-        } catch (cleanupErr) {
-          console.error('Local session cleanup failed:', cleanupErr);
-        }
-      })
-      .finally(() => {
-        setLoading(false);
+        finishInit(null);
+        // Best-effort cleanup — fire and forget
+        supabase.auth.signOut({ scope: 'local' }).catch((err) => {
+          console.error('Local session cleanup failed:', err);
+        });
+        console.warn('Cleared stale local auth session');
       });
 
     return () => {

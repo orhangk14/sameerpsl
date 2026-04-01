@@ -20,11 +20,24 @@ const ResetPassword = () => {
         setSessionReady(true);
       }
     });
-    // Also check if already in a recovery session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setSessionReady(true);
-    });
-    return () => subscription.unsubscribe();
+
+    const timeout = setTimeout(() => {
+      // If still not ready after 5s, stop waiting
+      if (!sessionReady) setSessionReady(false);
+    }, 5000);
+
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        if (session) setSessionReady(true);
+      })
+      .catch(() => {
+        // ignore — timeout will handle it
+      });
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
   }, []);
 
   const handleReset = async (e: React.FormEvent) => {
