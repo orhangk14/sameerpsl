@@ -434,7 +434,7 @@ const MatchDetail = () => {
     return allPlayers.filter(p => selected.has(p.id));
   }, [allPlayers, selected, dbPlayers, existingTeam, isLiveOrCompleted]);
   const usedCredits = selectedPlayers.reduce((sum, p) => sum + Number(p.credits), 0);
-  const matchBudget = getBudget(match?.match_date);
+  const matchBudget = getBudget();
   const remainingCredits = matchBudget - usedCredits;
 
   const roleCounts = useMemo(() => {
