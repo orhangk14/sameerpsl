@@ -29,11 +29,7 @@ interface Player {
   image_url?: string | null;
 }
 
-const BUDGET_CUTOFF = new Date('2026-03-28T00:00:00Z');
-const getBudget = (matchDate?: string) => {
-  if (!matchDate) return 100;
-  return new Date(matchDate) > BUDGET_CUTOFF ? 90 : 100;
-};
+const getBudget = () => 100;
 const MAX_PER_TEAM = 7;
 const ROLE_CONSTRAINTS: Record<PlayerRole, [number, number]> = {
   WK: [1, 4],
@@ -438,7 +434,7 @@ const MatchDetail = () => {
     return allPlayers.filter(p => selected.has(p.id));
   }, [allPlayers, selected, dbPlayers, existingTeam, isLiveOrCompleted]);
   const usedCredits = selectedPlayers.reduce((sum, p) => sum + Number(p.credits), 0);
-  const matchBudget = getBudget(match?.match_date);
+  const matchBudget = getBudget();
   const remainingCredits = matchBudget - usedCredits;
 
   const roleCounts = useMemo(() => {
