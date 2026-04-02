@@ -369,52 +369,53 @@ async function tryCricbuzz(
     // ─── Fetch SCORECARD page for full player data (skip when scoresOnly) ───
     let scorecardPlayers: PlayerStats[] = [];
     if (!scoresOnly) {
-      console.log(`Cricbuzz: fetching scorecard page for ID ${cricbuzzId}`);
-      const { data: scHtml, error: scError } = await supabase.rpc("http_get_text", {
-        target_url: `https://www.cricbuzz.com/live-cricket-scorecard/${cricbuzzId}`
-      });
-      if (!scError && scHtml && scHtml.length > 1000) {
-        console.log(`Cricbuzz: scorecard page got ${scHtml.length} chars`);
-        scorecardPlayers = parseScorecardPlayers(scHtml);
-        console.log(`Cricbuzz: scorecard parsed ${scorecardPlayers.length} players`);
+      try {
+        console.log(`Cricbuzz: fetching scorecard page for ID ${cricbuzzId}`);
+        const { data: scHtml, error: scError } = await supabase.rpc("http_get_text", {
+          target_url: `https://www.cricbuzz.com/live-cricket-scorecard/${cricbuzzId}`
+        });
+        if (!scError && scHtml && scHtml.length > 1000) {
+          console.log(`Cricbuzz: scorecard page got ${scHtml.length} chars`);
+          scorecardPlayers = parseScorecardPlayers(scHtml);
+          console.log(`Cricbuzz: scorecard parsed ${scorecardPlayers.length} players`);
+        }
+      } catch (scErr) {
+        console.log(`Cricbuzz: scorecard fetch failed, using miniscore only:`, scErr);
       }
-    } catch (scErr) {
-      console.log(`Cricbuzz: scorecard fetch failed, using miniscore only:`, scErr);
-    }
 
-    // If scorecard gave us players, use those; otherwise fall back to miniscore
-    if (scorecardPlayers.length > 0) {
-      for (const sp of scorecardPlayers) {
-        mergePlayer(players, sp);
-      }
-    } else {
-      // Miniscore fallback: current batsmen
-      const batRegex = /\\?"(?:batsmanStriker|batsmanNonStriker)\\?":\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"[^}]*?\\?"runs\\?":\s*(\d+)[^}]*?\\?"balls\\?":\s*(\d+)[^}]*?\\?"fours\\?":\s*(\d+)[^}]*?\\?"sixes\\?":\s*(\d+)/g;
-      let bm;
-      while ((bm = batRegex.exec(html)) !== null) {
-        if (bm[1] && bm[1] !== "undefined") {
-          mergePlayer(players, { name: bm[1], runs: parseInt(bm[2]) || 0, balls: parseInt(bm[3]) || 0, fours: parseInt(bm[4]) || 0, sixes: parseInt(bm[5]) || 0 });
+      // If scorecard gave us players, use those; otherwise fall back to miniscore
+      if (scorecardPlayers.length > 0) {
+        for (const sp of scorecardPlayers) {
+          mergePlayer(players, sp);
         }
-      }
-      // Miniscore fallback: current bowlers
-      const bowlRegex = /\\?"(?:bowlerStriker|bowlerNonStriker)\\?":\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"[^}]*?\\?"overs\\?":\s*([\d.]+)[^}]*?\\?"maidens\\?":\s*(\d+)[^}]*?\\?"runs\\?":\s*(\d+)[^}]*?\\?"wickets\\?":\s*(\d+)/g;
-      let bwm;
-      while ((bwm = bowlRegex.exec(html)) !== null) {
-        if (bwm[1] && bwm[1] !== "undefined") {
-          mergePlayer(players, { name: bwm[1], oversBowled: parseFloat(bwm[2]) || 0, maidens: parseInt(bwm[3]) || 0, runsConceded: parseInt(bwm[4]) || 0, wickets: parseInt(bwm[5]) || 0 });
+      } else {
+        // Miniscore fallback: current batsmen
+        const batRegex = /\\?"(?:batsmanStriker|batsmanNonStriker)\\?":\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"[^}]*?\\?"runs\\?":\s*(\d+)[^}]*?\\?"balls\\?":\s*(\d+)[^}]*?\\?"fours\\?":\s*(\d+)[^}]*?\\?"sixes\\?":\s*(\d+)/g;
+        let bm;
+        while ((bm = batRegex.exec(html)) !== null) {
+          if (bm[1] && bm[1] !== "undefined") {
+            mergePlayer(players, { name: bm[1], runs: parseInt(bm[2]) || 0, balls: parseInt(bm[3]) || 0, fours: parseInt(bm[4]) || 0, sixes: parseInt(bm[5]) || 0 });
+          }
         }
-      }
-      // Last wicket
-      const lastWicketRegex = /\\?"lastWicket\\?":\s*\\?"([^"\\]+)\s+(\d+)\((\d+)\)/g;
-      let lwm;
-      while ((lwm = lastWicketRegex.exec(html)) !== null) {
-        const name = lwm[1].trim().replace(/\s+[cb]\s+.*/, '').trim();
-        if (name && name.length > 2) {
-          mergePlayer(players, { name, runs: parseInt(lwm[2]) || 0, balls: parseInt(lwm[3]) || 0, out: true });
+        // Miniscore fallback: current bowlers
+        const bowlRegex = /\\?"(?:bowlerStriker|bowlerNonStriker)\\?":\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"[^}]*?\\?"overs\\?":\s*([\d.]+)[^}]*?\\?"maidens\\?":\s*(\d+)[^}]*?\\?"runs\\?":\s*(\d+)[^}]*?\\?"wickets\\?":\s*(\d+)/g;
+        let bwm;
+        while ((bwm = bowlRegex.exec(html)) !== null) {
+          if (bwm[1] && bwm[1] !== "undefined") {
+            mergePlayer(players, { name: bwm[1], oversBowled: parseFloat(bwm[2]) || 0, maidens: parseInt(bwm[3]) || 0, runsConceded: parseInt(bwm[4]) || 0, wickets: parseInt(bwm[5]) || 0 });
+          }
+        }
+        // Last wicket
+        const lastWicketRegex = /\\?"lastWicket\\?":\s*\\?"([^"\\]+)\s+(\d+)\((\d+)\)/g;
+        let lwm;
+        while ((lwm = lastWicketRegex.exec(html)) !== null) {
+          const name = lwm[1].trim().replace(/\s+[cb]\s+.*/, '').trim();
+          if (name && name.length > 2) {
+            mergePlayer(players, { name, runs: parseInt(lwm[2]) || 0, balls: parseInt(lwm[3]) || 0, out: true });
+          }
         }
       }
     }
-
     console.log(`Cricbuzz: scores ${teamAScore} / ${teamBScore}, ${players.length} players, ended=${matchEnded}`);
     // Extract winning team from status text in the HTML
     let winningTeam: string | null = null;
