@@ -121,9 +121,9 @@ Deno.serve(async (req) => {
       try {
         let scorecard: NormalizedScorecard | null = null;
 
-        // 1. Cricbuzz (free, no key, most reliable)
+        // 1. Cricbuzz — scores only (skip heavy scorecard fetch during live)
         if (!scorecard && match.cricbuzz_match_id) {
-          scorecard = await tryCricbuzz(match.cricbuzz_match_id, match, supabase);
+          scorecard = await tryCricbuzz(match.cricbuzz_match_id, match, supabase, true);
         }
 
         // 2. CricAPI fallback (currently has SSL issues from this environment)
@@ -136,7 +136,7 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Update match scores
+        // Update match display scores (lightweight — always runs)
         const status = scorecard.matchEnded ? "completed" : "live";
         const matchUpdate: any = { team_a_score: scorecard.teamAScore, team_b_score: scorecard.teamBScore, status };
         if (scorecard.winningTeam) matchUpdate.winning_team = scorecard.winningTeam;
@@ -145,16 +145,30 @@ Deno.serve(async (req) => {
           .update(matchUpdate)
           .eq("id", match.id);
 
-        // Update Playing XI (only CricAPI has this)
-        if (scorecard.source === "cricapi" && CRICAPI_KEY && match.external_id) {
-          await updatePlayingXI(supabase, CRICAPI_KEY, match.external_id, match.id);
+        // ── Heavy work: ONLY when match just completed ──
+        if (scorecard.matchEnded) {
+          console.log(`Match ${match.id} ended — running full point calculation`);
+
+          // Re-fetch with full scorecard data
+          let fullScorecard = scorecard;
+          if (match.cricbuzz_match_id) {
+            const full = await tryCricbuzz(match.cricbuzz_match_id, match, supabase, false);
+            if (full) fullScorecard = full;
+          }
+
+          // Update Playing XI (only CricAPI has this)
+          if (fullScorecard.source === "cricapi" && CRICAPI_KEY && match.external_id) {
+            await updatePlayingXI(supabase, CRICAPI_KEY, match.external_id, match.id);
+          }
+
+          // Compute player points from full scorecard
+          await computePlayerPoints(supabase, fullScorecard, match.id, aliasMap);
+
+          // Recalculate user team points
+          await recalcUserTeamPoints(supabase, match.id);
+        } else {
+          console.log(`Match ${match.id} still live — scores updated, skipping point calculations`);
         }
-
-        // Compute player points from normalized scorecard
-        await computePlayerPoints(supabase, scorecard, match.id, aliasMap);
-
-        // Recalculate user team points
-        await recalcUserTeamPoints(supabase, match.id);
 
         updated++;
       } catch (matchErr) {
