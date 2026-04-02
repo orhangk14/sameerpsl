@@ -1,28 +1,71 @@
 
 
-## Add error handling and retry UI for matches loading
+## Defer Fantasy Point Calculations Until Match Completion
 
 ### Problem
-The Supabase REST API requests are intermittently failing with `net::ERR_ABORTED`, causing the app to show "Loading matches..." forever. The database is healthy (44 matches, correct RLS), but the app has zero error handling — no retry button, no error message, just an infinite spinner.
+Every minute during a live match, the `sync-live-scores` function scrapes Cricbuzz (2 HTTP calls via `http_get_text` RPC), parses all player stats, computes fantasy points for every player, then recalculates every user team's total and profile points. This hammers the database with dozens of writes per invocation, causing 504 upstream timeouts that take down the entire app (auth, match loading, everything).
 
-### Plan
+### Solution
+During live matches, **only update the display scores** (team_a_score, team_b_score, status). Defer all heavy work (player point computation, user team recalculation) to when the match transitions to `completed`.
 
-**File: `src/pages/Index.tsx`**
+### Changes
 
-1. Extract `isError` and `refetch` from the `useQuery` hook
-2. Replace the loading-only state with a combined loading/error UI:
-   - On error: show a message like "Couldn't load matches" with a **Retry** button that calls `refetch()`
-   - Keep the spinner for the initial loading state
-3. Add `retry: 3` to the query config (react-query default, but make it explicit) so transient failures auto-recover before showing the error state
+**File: `supabase/functions/sync-live-scores/index.ts`**
 
-### Technical details
-- Add `isError` and `refetch` destructuring from `useQuery`
-- In the render, after the `isLoading` check, add an `isError` branch with a retry button
-- The 30s `refetchInterval` already handles background recovery, but the error UI gives users immediate control
+In the main handler loop (lines ~120-163), split behavior based on match completion:
+
+1. **While match is live** — only update `team_a_score`, `team_b_score`, and `status` on the `matches` table. Skip `computePlayerPoints()` and `recalcUserTeamPoints()` entirely. Also skip the scorecard page fetch (`/live-cricket-scorecard/`) since it's only needed for full player stats — just fetch the live scores page for display scores.
+
+2. **When match ends** (`scorecard.matchEnded === true`) — run the full pipeline: fetch scorecard, compute player points, apply win bonus and MOTM bonus, recalculate user team points and profile totals. This happens exactly once per match.
+
+3. **Skip Playing XI update during live** — the `updatePlayingXI` call can also be deferred or run only once at match start, not every minute.
+
+### Specific code changes
+
+```text
+Current flow (every minute during live):
+  fetch live scores page  ─┐
+  fetch scorecard page     ─┤  2 heavy HTTP calls
+  parse all players        ─┘
+  update match scores      ── 1 DB write
+  computePlayerPoints()    ── N DB writes (one per player)
+  recalcUserTeamPoints()   ── M DB writes (one per user team + profiles)
+
+New flow during live:
+  fetch live scores page   ── 1 HTTP call (lighter page)
+  update match scores      ── 1 DB write
+  DONE
+
+New flow when match completes:
+  fetch scorecard page     ── 1 HTTP call
+  parse all players        
+  update match scores + winning_team
+  computePlayerPoints()    ── full calculation with bonuses
+  recalcUserTeamPoints()   ── full recalc
+```
+
+### Implementation detail
+
+In `tryCricbuzz()` (line ~298), add a parameter or return early from scorecard fetch when we only need display scores. The simplest approach: add a `scoresOnly` boolean parameter. When true, skip the scorecard page fetch and return with empty `players` array (scores + matchEnded status only).
+
+In the main loop, the logic becomes:
+```
+// First pass: get scores and check if match ended
+scorecard = await tryCricbuzz(id, match, supabase, /* scoresOnly */ true);
+// Update display scores
+await updateMatchScores(match.id, scorecard);
+
+// Only do heavy work if match just completed
+if (scorecard.matchEnded) {
+  fullScorecard = await tryCricbuzz(id, match, supabase, /* scoresOnly */ false);
+  await computePlayerPoints(supabase, fullScorecard, match.id, aliasMap);
+  await recalcUserTeamPoints(supabase, match.id);
+}
+```
 
 ### Expected result
-- Transient API failures: react-query retries 3 times automatically, then shows error with retry button
-- User can tap Retry to immediately re-fetch
-- Background polling continues to auto-recover
-- No more infinite "Loading matches..." on API errors
+- Live matches: app stays responsive (1 light HTTP call + 1 DB write per minute)
+- Match completion: full points calculated once, correctly, with MOTM and win bonus
+- No more app-wide 504 outages during games
+- Admin recalculate button still works independently for manual corrections
 
