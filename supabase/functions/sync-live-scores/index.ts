@@ -1168,7 +1168,7 @@ async function recalcUserTeamPoints(
 
       await supabase
         .from("user_teams")
-        .update({ total_points: Math.round(total) })
+        .update({ total_points: parseFloat(total.toFixed(1)) })
         .eq("id", ut.id);
     }
 
