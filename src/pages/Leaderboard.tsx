@@ -281,7 +281,7 @@ const Leaderboard = () => {
 
               {/* Points */}
               <span className={cn("font-display font-bold text-sm", entry.rank <= 3 ? "text-foreground" : "text-secondary")}>
-                {showSquad && isUpcoming ? 'Entered' : `${entry.points.toLocaleString()} pts`}
+                {showSquad && isUpcoming ? 'Entered' : `${entry.points % 1 === 0 ? entry.points : entry.points.toFixed(1)} pts`}
               </span>
 
               {showSquad && (
