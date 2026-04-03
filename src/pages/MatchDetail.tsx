@@ -409,10 +409,10 @@ const isLocked = useMemo(() => {
   });
 
   const filteredPlayers = useMemo(() => {
-    if (roleFilter === 'ALL') return allPlayers;
-    return allPlayers.filter(p => p.role === roleFilter);
+    const filtered = roleFilter === 'ALL' ? allPlayers : allPlayers.filter(p => p.role === roleFilter);
+    return [...filtered].sort((a, b) => b.credits - a.credits);
   }, [allPlayers, roleFilter]);
-
+  
   // For live/completed matches with existing teams, always use DB players to avoid ID mismatch
   const selectedPlayers = useMemo(() => {
     if (isLiveOrCompleted && existingTeam && dbPlayers.length > 0) {

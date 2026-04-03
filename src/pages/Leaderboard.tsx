@@ -197,7 +197,10 @@ const Leaderboard = () => {
         <p className="text-[11px] font-display font-semibold text-muted-foreground uppercase tracking-wider mb-2">
           <Users className="w-3 h-3 inline mr-1" />Squad ({expandedSquad.length} players)
         </p>
-        {expandedSquad.map(p => {
+        {[...expandedSquad].sort((a, b) => {
+          const order: Record<string, number> = { WK: 0, BAT: 1, AR: 2, BOWL: 3 };
+          return (order[a.role] ?? 4) - (order[b.role] ?? 4);
+        }).map(p => {
           const isCaptain = entry.captainId === p.player_id;
           const isVC = entry.viceCaptainId === p.player_id;
           const basePts = p.points;
