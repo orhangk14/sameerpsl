@@ -231,11 +231,15 @@ const Leaderboard = () => {
               </div>
               {p.breakdown && (
                 <div className="flex flex-wrap gap-1 ml-7">
+                  <span className="text-[8px] px-1 py-0 rounded bg-muted text-muted-foreground">XI:+{p.breakdown.starting_xi || 4}</span>
                   {p.breakdown.batting !== 0 && <span className="text-[8px] px-1 py-0 rounded bg-secondary/10 text-secondary">Bat:{p.breakdown.batting}</span>}
                   {p.breakdown.bowling !== 0 && <span className="text-[8px] px-1 py-0 rounded bg-primary/10 text-primary">Bowl:{p.breakdown.bowling}</span>}
                   {p.breakdown.fielding !== 0 && <span className="text-[8px] px-1 py-0 rounded bg-accent/10 text-accent-foreground">Field:{p.breakdown.fielding}</span>}
-                  {(p.breakdown.winning_bonus || 0) > 0 && <span className="text-[8px] px-1 py-0 rounded bg-primary/10 text-primary">Win:+5</span>}
-                  {(p.breakdown.motm_bonus || 0) > 0 && <span className="text-[8px] px-1 py-0 rounded bg-secondary/10 text-secondary">MOTM:+30</span>}
+                  {(p.breakdown.sr_bonus || 0) !== 0 && <span className="text-[8px] px-1 py-0 rounded bg-muted text-muted-foreground">SR:{p.breakdown.sr_bonus > 0 ? '+' : ''}{p.breakdown.sr_bonus}</span>}
+                  {(p.breakdown.er_bonus || 0) !== 0 && <span className="text-[8px] px-1 py-0 rounded bg-muted text-muted-foreground">ER:{p.breakdown.er_bonus > 0 ? '+' : ''}{p.breakdown.er_bonus}</span>}
+                  {(p.breakdown.milestone || 0) > 0 && <span className="text-[8px] px-1 py-0 rounded bg-secondary/10 text-secondary">Milestone:+{p.breakdown.milestone}</span>}
+                  {(p.breakdown.winning_bonus || 0) > 0 && <span className="text-[8px] px-1 py-0 rounded bg-primary/10 text-primary">Win:+{p.breakdown.winning_bonus}</span>}
+                  {(p.breakdown.motm_bonus || 0) > 0 && <span className="text-[8px] px-1 py-0 rounded bg-secondary/10 text-secondary">MOTM:+{p.breakdown.motm_bonus}</span>}
                 </div>
               )}
             </div>

@@ -133,11 +133,13 @@ const LiveMyTeam = ({ players, captainId, viceCaptainId, matchPoints }: { player
               </div>
               {bd && (
                 <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-border">
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-display">XI: +{bd.starting_xi || 4}</span>
                   {bd.batting !== 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-secondary/10 text-secondary font-display">Bat: {bd.batting}</span>}
                   {bd.bowling !== 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-display">Bowl: {bd.bowling}</span>}
                   {bd.fielding !== 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/10 text-accent-foreground font-display">Field: {bd.fielding}</span>}
                   {(bd.sr_bonus || 0) !== 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-display">SR: {bd.sr_bonus > 0 ? '+' : ''}{bd.sr_bonus}</span>}
                   {(bd.er_bonus || 0) !== 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-display">ER: {bd.er_bonus > 0 ? '+' : ''}{bd.er_bonus}</span>}
+                  {(bd.milestone || 0) > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-secondary/10 text-secondary font-display">Milestone: +{bd.milestone}</span>}
                   {(bd.winning_bonus || 0) > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-display">Win: +{bd.winning_bonus}</span>}
                   {(bd.motm_bonus || 0) > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-secondary/10 text-secondary font-display">MOTM: +{bd.motm_bonus}</span>}
                 </div>
