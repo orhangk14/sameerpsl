@@ -383,19 +383,27 @@ async function tryCricbuzz(
     const players: PlayerStats[] = [];
 
       // Find state specifically for THIS match by looking near the cricbuzz match ID
-    const matchIdStr = cricbuzzId.toString();
-    const idIndex = html.indexOf(matchIdStr);
+    // Find state for THIS specific match by looking for state near our team names
+    const slugTeamA = match.team_a.split(' ')[0].toLowerCase();
+    const slugTeamB = match.team_b.split(' ')[0].toLowerCase();
     let matchEnded = false;
     
-    if (idIndex !== -1) {
-      // Look for state within 2000 chars after the match ID
-      const nearby = html.substring(idIndex, idIndex + 2000);
-      const nearbyState = nearby.match(/\\?"state\\?":\s*\\?"(Complete|In Progress|Toss|Preview)\\?"/);
-      if (nearbyState) {
-        matchEnded = nearbyState[1] === "Complete";
+    const stateRegex = /\\*"?state\\*"?\s*:\s*\\*"?(Complete|In Progress|Toss|Preview)\\*"?/g;
+    let stateMatch;
+    
+    while ((stateMatch = stateRegex.exec(html)) !== null) {
+      const start = Math.max(0, stateMatch.index - 500);
+      const end = Math.min(html.length, stateMatch.index + 500);
+      const context = html.substring(start, end).toLowerCase();
+      
+      const hasTeamA = context.includes(slugTeamA);
+      const hasTeamB = context.includes(slugTeamB);
+      
+      if (hasTeamA && hasTeamB) {
+        matchEnded = stateMatch[1] === "Complete";
+        break;
       }
     }
-    
     // Fallback: only use isMatchComplete if it appears near our match data
     if (!matchEnded && idIndex !== -1) {
       const nearby = html.substring(idIndex, idIndex + 2000);
