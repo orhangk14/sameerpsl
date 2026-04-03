@@ -513,9 +513,18 @@ async function tryCricbuzz(
     // Extract winning team from status text in the HTML
     let winningTeam: string | null = null;
     if (matchEnded) {
-      const statusRegex = /\\?"status\\?":\s*\\?"([^"\\]+)\\?"/;
-      const statusMatch = html.match(statusRegex);
-      winningTeam = extractWinningTeam(statusMatch?.[1], match.team_a, match.team_b);
+      const statusRegex = /\\*"?status\\*"?\s*:\s*\\*"?([^"\\]{5,80})\\*"?/g;
+      let sm;
+      while ((sm = statusRegex.exec(html)) !== null) {
+        const statusText = sm[1];
+        if (statusText.toLowerCase().includes("won") || statusText.toLowerCase().includes("beat")) {
+          const result = extractWinningTeam(statusText, match.team_a, match.team_b);
+          if (result) {
+            winningTeam = result;
+            break;
+          }
+        }
+      }
     }
     // Extract Player of the Match
     let playerOfTheMatch: string | null = null;
