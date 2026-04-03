@@ -222,7 +222,7 @@ const Leaderboard = () => {
                 <span className="text-muted-foreground">{p.team}</span>
                 {multipliedPts !== undefined && (
                   <span className="font-display font-bold text-primary">
-                    {Math.round(multipliedPts)}pts
+                    {multipliedPts % 1 === 0 ? multipliedPts : multipliedPts.toFixed(1)}pts
                     {(isCaptain || isVC) && (
                       <span className="text-[8px] text-muted-foreground ml-0.5">({basePts}×{isCaptain ? '2' : '1.5'})</span>
                     )}

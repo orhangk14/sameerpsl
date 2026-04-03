@@ -102,7 +102,7 @@ const LiveMyTeam = ({ players, captainId, viceCaptainId, matchPoints }: { player
     <div className="space-y-3">
       <div className="gradient-card rounded-xl border border-primary/30 p-4 text-center">
         <p className="text-xs text-muted-foreground font-display">Total Fantasy Points</p>
-        <p className="text-4xl font-display font-black text-primary mt-1">{Math.round(totalPoints)}</p>
+        <p className="text-4xl font-display font-black text-primary mt-1">{totalPoints % 1 === 0 ? totalPoints : totalPoints.toFixed(1)}</p>
       </div>
       <div className="space-y-1.5">
         {sorted.map(player => {
@@ -125,7 +125,7 @@ const LiveMyTeam = ({ players, captainId, viceCaptainId, matchPoints }: { player
                   <p className="text-[10px] text-muted-foreground">{player.team}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="font-display font-bold text-sm text-foreground">{Math.round(multipliedPts)}</p>
+                  <p className="font-display font-bold text-sm text-foreground">{multipliedPts % 1 === 0 ? multipliedPts : multipliedPts.toFixed(1)}</p>
                   {(isCaptain || isVC) && (
                     <p className="text-[9px] text-muted-foreground">{basePts} × {isCaptain ? '2' : '1.5'}</p>
                   )}
