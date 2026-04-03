@@ -346,11 +346,10 @@ const MatchDetail = () => {
     }
   }, [existingTeam]);
 
-  const isLocked = useMemo(() => {
+const isLocked = useMemo(() => {
     if (!match) return false;
     if (match.status === 'live' || match.status === 'completed') return true;
-    const lockTime = match.lock_time || match.match_date;
-    return new Date(lockTime).getTime() <= Date.now();
+    return false;
   }, [match]);
 
   const isLiveOrCompleted = match?.status === 'live' || match?.status === 'completed';
