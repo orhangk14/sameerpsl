@@ -41,11 +41,20 @@ export const CountdownTimer = ({ targetDate, isLocked }: CountdownTimerProps) =>
     return () => clearInterval(interval);
   }, [targetDate]);
 
-  if (isLocked || isExpired) {
+  if (isLocked) {
     return (
       <div className="flex items-center gap-2 text-destructive text-sm font-display font-semibold">
         <Lock className="w-4 h-4" />
         <span>Team Locked</span>
+      </div>
+    );
+  }
+
+  if (isExpired) {
+    return (
+      <div className="flex items-center gap-2 text-secondary text-sm font-display font-semibold">
+        <Clock className="w-4 h-4" />
+        <span>Starting soon...</span>
       </div>
     );
   }
