@@ -382,12 +382,27 @@ async function tryCricbuzz(
     let teamBScore: string | null = null;
     const players: PlayerStats[] = [];
 
-    // Check match state — try multiple patterns since Cricbuzz HTML format varies
-    const stateMatch = html.match(/\\?"state\\?":\s*\\?"(Complete|In Progress|Toss|Preview)\\?"/);
-    const completeAlt = /["\\]?isMatchComplete["\\]?\s*:\s*true/i.test(html);
-    const statusWon = /["\\]?status["\\]?\s*:\s*["\\]?[^"\\]*\bwon\b/i.test(html);
-    const matchEnded = (stateMatch ? stateMatch[1] === "Complete" : false) || completeAlt || statusWon;
-
+      // Find state specifically for THIS match by looking near the cricbuzz match ID
+    const matchIdStr = cricbuzzId.toString();
+    const idIndex = html.indexOf(matchIdStr);
+    let matchEnded = false;
+    
+    if (idIndex !== -1) {
+      // Look for state within 2000 chars after the match ID
+      const nearby = html.substring(idIndex, idIndex + 2000);
+      const nearbyState = nearby.match(/\\?"state\\?":\s*\\?"(Complete|In Progress|Toss|Preview)\\?"/);
+      if (nearbyState) {
+        matchEnded = nearbyState[1] === "Complete";
+      }
+    }
+    
+    // Fallback: only use isMatchComplete if it appears near our match data
+    if (!matchEnded && idIndex !== -1) {
+      const nearby = html.substring(idIndex, idIndex + 2000);
+      if (/\\?"isMatchComplete\\?":\s*true/.test(nearby)) {
+        matchEnded = true;
+      }
+    }
     // Extract innings scores from inningsScoreList in RSC data
     const inningsRegex = /\\?"inningsId\\?":\s*(\d+)\s*,\s*\\?"batTeamId\\?":\s*\d+\s*,\s*\\?"batTeamName\\?":\s*\\?"([^"\\]+)\\?"\s*,\s*\\?"score\\?":\s*(\d+)\s*,\s*\\?"wickets\\?":\s*(\d+)\s*,\s*\\?"overs\\?":\s*([\d.]+)/g;
     const inningsByid = new Map<string, { team: string; score: string }>();
@@ -622,10 +637,11 @@ function parseCricbuzzRSC(html: string, match: any): NormalizedScorecard | null 
     let teamBScore: string | null = null;
     let matchEnded = false;
 
-    // Check match status
-    if (html.includes('"state":"Complete"') || html.includes('won by') || html.includes('"matchEnded":true')) {
+    if (html.includes('"state":"Complete"') || html.includes('"matchEnded":true')) {
       matchEnded = true;
     }
+
+    // Extract score info
 
     // Extract score info from RSC: look for "runs":N,"wickets":N,"overs":N patterns near team names
     // Extract innings scores: pattern like "scoreTitle":"Team Innings","runs":150,"wickets":5,"overs":18.2
@@ -706,7 +722,7 @@ function parseCricbuzzCommentary(data: any, match: any): NormalizedScorecard | n
     const inningsScores = matchHeader.inningsScores || data.miniscore?.matchScoreDetails?.inningsScores || [];
     let teamAScore: string | null = null;
     let teamBScore: string | null = null;
-    const matchEnded = matchHeader.state === "Complete" || matchHeader.status?.includes("won");
+    const matchEnded = matchHeader.state === "Complete";
 
     for (const inn of inningsScores) {
       const inningsInfo = inn.inningsScore?.[0] || inn;
@@ -766,7 +782,7 @@ function parseCricbuzzCommentary(data: any, match: any): NormalizedScorecard | n
 function parseCricbuzzHTML(html: string, match: any): NormalizedScorecard | null {
   let teamAScore: string | null = null;
   let teamBScore: string | null = null;
-  const matchEnded = html.includes("complete") || html.includes("won by") || html.includes("result");
+  const matchEnded = false;
 
   const scoreRegex = /(\d+)\/(\d+)\s*\((\d+\.?\d*)\)/g;
   const scoreMatches = [...html.matchAll(scoreRegex)];
