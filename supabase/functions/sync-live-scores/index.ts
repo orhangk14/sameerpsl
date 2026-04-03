@@ -397,9 +397,29 @@ async function tryCricbuzz(
     }
 
     const innings = [...inningsByid.values()];
-    if (innings.length >= 1) teamAScore = innings[0].score;
-    if (innings.length >= 2) teamBScore = innings[1].score;
-
+    for (const inn of innings) {
+      const innTeam = inn.team.toLowerCase();
+      const teamALower = match.team_a.toLowerCase();
+      const teamBLower = match.team_b.toLowerCase();
+      // Check full name or keyword match
+      const matchesA = innTeam.includes(teamALower) || teamALower.includes(innTeam) ||
+        Object.entries(PSL_TEAM_KEYWORDS).some(([key, kws]) =>
+          teamALower.includes(key.toLowerCase()) && kws.some(kw => innTeam.includes(kw))
+        );
+      const matchesB = innTeam.includes(teamBLower) || teamBLower.includes(innTeam) ||
+        Object.entries(PSL_TEAM_KEYWORDS).some(([key, kws]) =>
+          teamBLower.includes(key.toLowerCase()) && kws.some(kw => innTeam.includes(kw))
+        );
+      if (matchesA) {
+        teamAScore = teamAScore ? `${teamAScore} & ${inn.score}` : inn.score;
+      } else if (matchesB) {
+        teamBScore = teamBScore ? `${teamBScore} & ${inn.score}` : inn.score;
+      } else if (!teamAScore) {
+        teamAScore = inn.score;
+      } else {
+        teamBScore = inn.score;
+      }
+    }
     // Fallback score extraction from title
     if (!teamAScore) {
       const titleRegex = /(\w+)\s+(\d+)\/(\d+)\s*\(([\d.]+)\)/g;
