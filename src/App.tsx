@@ -15,7 +15,15 @@ import AdminScores from "./pages/AdminScores.tsx";
 import ResetPassword from "./pages/ResetPassword.tsx";
 import ScrollToTop from "./components/ScrollToTop";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 15000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const LoadingScreen = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
