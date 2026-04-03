@@ -176,8 +176,7 @@ const MatchLeaderboard = ({ matchId }: { matchId: string }) => {
         points: d.total_points,
       }));
     },
-    refetchInterval: 30000,
-    staleTime: 15000,  // ADD THIS — data considered fresh for 
+    refetchInterval: 15000,
   });
 
   if (isLoading) return <p className="text-center text-muted-foreground text-sm py-8">Loading...</p>;
@@ -232,9 +231,8 @@ const MatchDetail = () => {
     },
     refetchInterval: (query) => {
       const m = query.state.data;
-      return m?.status === 'live' ? 30000 : 60000;
+      return m?.status === 'live' ? 10000 : 30000;
     },
-    staleTime: 15000,  // ADD THIS — data considered fresh for 
   });
 
   const { data: dbPlayers = [], isLoading: playersLoading } = useQuery({
@@ -247,8 +245,7 @@ const MatchDetail = () => {
       if (error) throw error;
       return (data || []).map(mp => mp.players).filter(Boolean) as Player[];
     },
-    refetchInterval: match?.status === 'live' ? 60000 : false,
-    staleTime: 15000,  // ADD THIS — data considered fresh for 
+    refetchInterval: match?.status === 'live' ? 10000 : 30000,
   });
 
   useEffect(() => {
@@ -309,8 +306,7 @@ const MatchDetail = () => {
       if (error) throw error;
       return data || [];
     },
-    refetchInterval: match?.status === 'live' ? 30000 : undefined,
-    staleTime: 15000,  // ADD THIS — data considered fresh for 
+    refetchInterval: match?.status === 'live' ? 10000 : undefined,
   });
 
   const matchPointsMap = useMemo(() => {
@@ -333,8 +329,7 @@ const MatchDetail = () => {
         .maybeSingle();
       return data;
     },
-    refetchInterval: match?.status === 'live' ? 60000 : undefined,
-    staleTime: 15000,  // ADD THIS — data considered fresh for 
+    refetchInterval: match?.status === 'live' ? 10000 : undefined,
   });
 
   useEffect(() => {
@@ -345,6 +340,24 @@ const MatchDetail = () => {
       setViceCaptain(existingTeam.vice_captain_id);
     }
   }, [existingTeam]);
+
+  // Realtime subscriptions
+  useEffect(() => {
+    const channel = supabase
+      .channel(`match-${id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches', filter: `id=eq.${id}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ['match', id] });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['match-players', id] });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_teams' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['user-team', id] });
+        queryClient.invalidateQueries({ queryKey: ['match-leaderboard', id] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [id, queryClient]);
 
   const isLocked = useMemo(() => {
     if (!match) return false;
