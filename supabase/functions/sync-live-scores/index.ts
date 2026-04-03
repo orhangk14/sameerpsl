@@ -94,11 +94,22 @@ Deno.serve(async (req) => {
       .eq("status", "upcoming")
       .lte("match_date", new Date().toISOString());
 
-    const { data: liveMatches } = await supabase
-      .from("matches")
-      .select("id, external_id, cricbuzz_match_id, espn_match_id, team_a, team_b, team_a_logo, team_b_logo, status")
-      .in("status", ["live"]);
+const { data: liveMatches } = await supabase
+  .from("matches")
+  .select("id, external_id, cricbuzz_match_id, espn_match_id, team_a, team_b, team_a_logo, team_b_logo, status")
+  .in("status", ["live"]);
 
+// Also discover Cricbuzz IDs for upcoming matches (next 24h)
+const { data: upcomingMatches } = await supabase
+  .from("matches")
+  .select("id, external_id, cricbuzz_match_id, espn_match_id, team_a, team_b, team_a_logo, team_b_logo, status")
+  .eq("status", "upcoming")
+  .is("cricbuzz_match_id", null)
+  .lte("match_date", new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+
+if (upcomingMatches?.length) {
+  await discoverCricbuzzIds(supabase, upcomingMatches);
+}
     if (!liveMatches?.length) {
       return new Response(
         JSON.stringify({ success: true, message: "No live matches to update", updated: 0 }),
