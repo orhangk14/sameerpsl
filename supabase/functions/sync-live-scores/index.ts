@@ -87,13 +87,34 @@ Deno.serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // ── Auto-transition upcoming → live ──
-    await supabase
-      .from("matches")
-      .update({ status: "live" })
-      .eq("status", "upcoming")
-      .lte("match_date", new Date().toISOString());
+// ── Auto-transition upcoming → live (only if Cricbuzz confirms match started) ──
+const { data: pendingMatches } = await supabase
+  .from("matches")
+  .select("id, cricbuzz_match_id, team_a, team_b")
+  .eq("status", "upcoming")
+  .lte("match_date", new Date().toISOString());
 
+if (pendingMatches?.length) {
+  for (const pm of pendingMatches) {
+    if (pm.cricbuzz_match_id) {
+      // Check if Cricbuzz has live scores before transitioning
+      const { data: html } = await supabase.rpc("http_get_text", {
+        target_url: `https://www.cricbuzz.com/live-cricket-scores/${pm.cricbuzz_match_id}`
+      });
+      const hasScores = html && /\\?"score\\?":\s*\d+/.test(html);
+      const inProgress = html && /In Progress/.test(html);
+      if (hasScores || inProgress) {
+        await supabase.from("matches").update({ status: "live" }).eq("id", pm.id);
+        console.log(`Match ${pm.team_a} vs ${pm.team_b} confirmed live by Cricbuzz`);
+      } else {
+        console.log(`Match ${pm.team_a} vs ${pm.team_b} past scheduled time but not started on Cricbuzz — keeping upcoming`);
+      }
+    } else {
+      // No Cricbuzz ID, fall back to time-based transition
+      await supabase.from("matches").update({ status: "live" }).eq("id", pm.id);
+    }
+  }
+}
 const { data: liveMatches } = await supabase
   .from("matches")
   .select("id, external_id, cricbuzz_match_id, espn_match_id, team_a, team_b, team_a_logo, team_b_logo, status")
@@ -178,7 +199,25 @@ if (upcomingMatches?.length) {
           // Recalculate user team points
           await recalcUserTeamPoints(supabase, match.id);
         } else {
-          console.log(`Match ${match.id} still live — scores updated, skipping point calculations`);
+          console.log(`Match ${match.id} still live — fetching scorecard for live points`);
+
+          // Fetch full scorecard even during live match
+          let liveScorecard = scorecard;
+          if (match.cricbuzz_match_id) {
+            const full = await tryCricbuzz(match.cricbuzz_match_id, match, supabase, false);
+            if (full) {
+              liveScorecard = full;
+              // Keep match as live (don't let scorecard override)
+              liveScorecard.matchEnded = false;
+            }
+          }
+
+          // Compute live player points
+          if (liveScorecard.players.length > 0) {
+            await computePlayerPoints(supabase, liveScorecard, match.id, aliasMap);
+            await recalcUserTeamPoints(supabase, match.id);
+            console.log(`Live points updated for ${liveScorecard.players.length} players`);
+          }
         }
 
         updated++;
