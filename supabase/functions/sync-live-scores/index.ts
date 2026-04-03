@@ -198,6 +198,13 @@ if (upcomingMatches?.length) {
 
           // Recalculate user team points
           await recalcUserTeamPoints(supabase, match.id);
+                    // Reset is_playing flags for both teams
+          console.log(`Resetting is_playing for ${match.team_a} and ${match.team_b}`);
+          await supabase
+            .from("players")
+            .update({ is_playing: false })
+            .eq("is_playing", true)
+            .in("team", [match.team_a, match.team_b]);
         } else {
           console.log(`Match ${match.id} still live — fetching scorecard for live points`);
 
