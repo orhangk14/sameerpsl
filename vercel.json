@@ -1,11 +1,5 @@
 {
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "crons": [
-    {
-      "path": "/api/sync-scores",
-      "schedule": "0 8 * * *"
-    }
   ]
 }
