@@ -426,13 +426,7 @@ async function tryCricbuzz(
         break;
       }
     }
-    // Fallback: only use isMatchComplete if it appears near our match data
-    if (!matchEnded && idIndex !== -1) {
-      const nearby = html.substring(idIndex, idIndex + 2000);
-      if (/\\?"isMatchComplete\\?":\s*true/.test(nearby)) {
-        matchEnded = true;
-      }
-    }
+    // Fallback removed — scoped state detection above handles completion
     // Extract innings scores from inningsScoreList in RSC data
     const inningsRegex = /\\?"inningsId\\?":\s*(\d+)\s*,\s*\\?"batTeamId\\?":\s*\d+\s*,\s*\\?"batTeamName\\?":\s*\\?"([^"\\]+)\\?"\s*,\s*\\?"score\\?":\s*(\d+)\s*,\s*\\?"wickets\\?":\s*(\d+)\s*,\s*\\?"overs\\?":\s*([\d.]+)/g;
     const inningsByid = new Map<string, { team: string; score: string }>();
