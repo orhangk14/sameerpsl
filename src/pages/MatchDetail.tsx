@@ -178,8 +178,8 @@ const MatchLeaderboard = ({ matchId }: { matchId: string }) => {
         points: d.total_points,
       }));
     },
-    refetchInterval: 30000,
-    staleTime: 15000,  // ADD THIS — data considered fresh for 
+    refetchInterval: 15000,
+    staleTime: 5000,  // ADD THIS — data considered fresh for 
   });
 
   if (isLoading) return <p className="text-center text-muted-foreground text-sm py-8">Loading...</p>;
@@ -249,8 +249,8 @@ const MatchDetail = () => {
       if (error) throw error;
       return (data || []).map(mp => mp.players).filter(Boolean) as Player[];
     },
-    refetchInterval: match?.status === 'live' ? 60000 : false,
-    staleTime: 15000,  // ADD THIS — data considered fresh for 
+    refetchInterval: match?.status === 'live' ? 15000 : false,
+    staleTime: 5000,  // ADD THIS — data considered fresh for 
   });
 
   useEffect(() => {
@@ -311,8 +311,8 @@ const MatchDetail = () => {
       if (error) throw error;
       return data || [];
     },
-    refetchInterval: match?.status === 'live' ? 30000 : undefined,
-    staleTime: 15000,  // ADD THIS — data considered fresh for 
+    refetchInterval: match?.status === 'live' ? 15000 : undefined,
+    staleTime: 5000,  // ADD THIS — data considered fresh for 
   });
 
   const matchPointsMap = useMemo(() => {
@@ -335,8 +335,8 @@ const MatchDetail = () => {
         .maybeSingle();
       return data;
     },
-    refetchInterval: match?.status === 'live' ? 60000 : undefined,
-    staleTime: 15000,  // ADD THIS — data considered fresh for 
+    refetchInterval: match?.status === 'live' ? 20000 : undefined,
+    staleTime: 5000,  // ADD THIS — data considered fresh for 
   });
 
   useEffect(() => {
