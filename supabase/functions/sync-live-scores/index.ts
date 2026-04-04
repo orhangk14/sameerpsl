@@ -248,12 +248,12 @@ if (upcomingMatches?.length) {
       }
     }
     // ── MOTM re-check for recently completed matches ──
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
     const { data: recentCompleted } = await supabase
       .from("matches")
       .select("id, cricbuzz_match_id, team_a, team_b")
       .eq("status", "completed")
-      .gte("match_date", twoHoursAgo);
+      .gte("match_date", sixHoursAgo);
 
     if (recentCompleted?.length) {
       for (const rm of recentCompleted) {
