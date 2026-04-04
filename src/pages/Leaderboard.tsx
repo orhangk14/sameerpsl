@@ -50,8 +50,8 @@ const Leaderboard = () => {
       if (error) throw error;
       return data;
     },
-    staleTime: 60000,
-    refetchInterval: 60000,
+    staleTime: 15000,
+    refetchInterval: 20000,
   });
 
   // Filter: upcoming within next 48h, live always, completed within last 24h
@@ -82,8 +82,8 @@ const Leaderboard = () => {
       if (error) throw error;
       return data.map((e, i) => ({ rank: i + 1, username: e.username, points: e.total_points }));
     },
-    staleTime: 30000,
-    refetchInterval: 45000,
+    staleTime: 10000,
+    refetchInterval: 20000,
   });
 
   const selectedMatchData = matches.find(m => m.id === selectedMatch);
@@ -118,8 +118,8 @@ const Leaderboard = () => {
         viceCaptainId: d.vice_captain_id,
       }));
     },
-    refetchInterval: 30000,
-    staleTime: 20000,
+    refetchInterval: 15000,
+    staleTime: 5000,
   });
 
   const { data: expandedSquad = [] } = useQuery({
@@ -157,7 +157,7 @@ const Leaderboard = () => {
         } as SquadPlayer;
       });
     },
-    staleTime: 20000,
+    staleTime: 5000,
   });
 
   const toggleExpand = (teamId: string | undefined) => {
