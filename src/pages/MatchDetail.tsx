@@ -236,7 +236,7 @@ const MatchDetail = () => {
       const m = query.state.data;
       return m?.status === 'live' ? 30000 : 60000;
     },
-    staleTime: 15000,  // ADD THIS — data considered fresh for 
+    staleTime: 5000,  // ADD THIS — data considered fresh for 
   });
 
   const { data: dbPlayers = [], isLoading: playersLoading } = useQuery({
