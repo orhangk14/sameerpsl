@@ -101,9 +101,24 @@ if (pendingMatches?.length) {
       const { data: html } = await supabase.rpc("http_get_text", {
         target_url: `https://www.cricbuzz.com/live-cricket-scores/${pm.cricbuzz_match_id}`
       });
-      const hasScores = html && /\\?"score\\?":\s*\d+/.test(html);
-      const inProgress = html && /In Progress/.test(html);
-      if (hasScores || inProgress) {
+      // Only transition when Cricbuzz shows "In Progress" scoped to THIS match
+      let confirmed = false;
+      if (html) {
+        const slugA = pm.team_a.split(' ')[0].toLowerCase();
+        const slugB = pm.team_b.split(' ')[0].toLowerCase();
+        const stateRegex = /In Progress/g;
+        let m;
+        while ((m = stateRegex.exec(html)) !== null) {
+          const start = Math.max(0, m.index - 500);
+          const end = Math.min(html.length, m.index + 500);
+          const context = html.substring(start, end).toLowerCase();
+          if (context.includes(slugA) && context.includes(slugB)) {
+            confirmed = true;
+            break;
+          }
+        }
+      }
+      if (confirmed) {
         await supabase.from("matches").update({ status: "live" }).eq("id", pm.id);
         console.log(`Match ${pm.team_a} vs ${pm.team_b} confirmed live by Cricbuzz`);
       } else {
