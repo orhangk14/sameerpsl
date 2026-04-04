@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { format, addHours, subHours, isAfter, isBefore } from 'date-fns';
 import { TeamLogo } from '@/components/TeamLogo';
+import { useLeaderboardRealtime } from '@/hooks/use-realtimesubscription';
 
 const statusColors: Record<string, string> = {
   upcoming: 'bg-accent text-accent-foreground',
@@ -35,6 +36,7 @@ type LeaderboardEntry = {
 };
 
 const Leaderboard = () => {
+  useLeaderboardRealtime();
   const [selectedMatch, setSelectedMatch] = useState<string | null>(null);
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
 

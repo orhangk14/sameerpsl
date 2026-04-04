@@ -15,6 +15,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFallbackPlayers, type FallbackPlayer } from '@/data/pslSquads';
 import { TeamPreview } from '@/components/TeamPreview';
+import { useMatchRealtime } from '@/hooks/use-realtimesubscription';
+
 
 type PlayerRole = 'BAT' | 'BOWL' | 'AR' | 'WK';
 
@@ -211,7 +213,8 @@ const MatchLeaderboard = ({ matchId }: { matchId: string }) => {
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 const MatchDetail = () => {
-  const { id } = useParams();
+  const { id } = useParams(); 
+  useMatchRealtime(id);
   const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
