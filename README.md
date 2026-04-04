@@ -92,35 +92,6 @@ A live fantasy cricket platform for the Pakistan Super League (PSL) 2026 season.
 | Hyderabad Kingsmen | HK | Gold / Brown |
 | Rawalpindi Pindiz | RP | Orange |
 
-## Development
-
-### Prerequisites
-
-- Node.js 18+
-- Supabase CLI
-- Vercel CLI
-
-### Local Setup
-
-    git clone https://github.com/orhangk14/sameerpsl.git
-    cd sameerpsl
-    npm install
-    cp .env.example .env
-    npm run dev
-
-### Deploy Frontend
-
-    git add -A
-    git commit -m "description"
-    git push
-    npx vercel --prod
-
-### Deploy Edge Functions
-
-    supabase functions deploy sync-live-scores --project-ref xknhrgnvuptzrugfskoe --no-verify-jwt
-
-Always use --no-verify-jwt for sync-live-scores.
-
 ## Project Structure
 
     src/
