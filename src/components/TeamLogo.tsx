@@ -21,15 +21,16 @@ const TEAM_ABBR: Record<string, string> = {
 };
 
 const TEAM_COLORS: Record<string, string> = {
-  'LQ': 'from-lime-500 to-green-600',         'Lahore Qalandars': 'from-lime-500 to-green-600',
+  'LQ': 'from-red-600 to-red-800',            'Lahore Qalandars': 'from-red-600 to-red-800',
   'KK': 'from-blue-700 to-red-600',           'Karachi Kings': 'from-blue-700 to-red-600',
   'IU': 'from-red-600 to-orange-500',         'Islamabad United': 'from-red-600 to-orange-500',
   'PZ': 'from-yellow-400 to-yellow-600',      'Peshawar Zalmi': 'from-yellow-400 to-yellow-600',
   'QG': 'from-purple-600 to-purple-800',      'Quetta Gladiators': 'from-purple-600 to-purple-800',
   'MS': 'from-teal-700 to-teal-900',          'Multan Sultans': 'from-teal-700 to-teal-900',
-  'HK': 'from-neutral-900 to-neutral-800',    'Hyderabad Kingsmen': 'from-neutral-900 to-neutral-800',
-  'RP': 'from-orange-500 to-indigo-600',      'Rawalpindi Pindiz': 'from-orange-500 to-indigo-600',
+  'HK': 'from-amber-700 to-stone-800',        'Hyderabad Kingsmen': 'from-amber-700 to-stone-800',
+  'RP': 'from-orange-500 to-orange-700',      'Rawalpindi Pindiz': 'from-orange-500 to-orange-700',
 };
+
 const TEAM_LOGOS: Record<string, string> = {
   'LQ': lqLogo, 'Lahore Qalandars': lqLogo,
   'KK': kkLogo, 'Karachi Kings': kkLogo,
