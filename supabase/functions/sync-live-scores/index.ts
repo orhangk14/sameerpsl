@@ -202,7 +202,7 @@ if (upcomingMatches?.length) {
           console.log(`Resetting is_playing for ${match.team_a} and ${match.team_b}`);
           await supabase
             .from("players")
-            .update({ is_playing: false })
+            .update({ is_playing: null })
             .eq("is_playing", true)
             .in("team", [match.team_a, match.team_b]);
         } else {
