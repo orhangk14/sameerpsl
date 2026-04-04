@@ -1088,9 +1088,9 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
       else if (sr < 70) bd.sr_bonus -= 2;
     }
 
+    if (runs >= 25) bd.milestone += 8;
+    if (runs >= 50) bd.milestone += 8;
     if (runs >= 100) bd.milestone += 16;
-    else if (runs >= 50) bd.milestone += 8;
-    else if (runs >= 25) bd.milestone += 8;
 
     if (runs === 0 && ps.out) bd.batting -= 2;
   }
@@ -1101,9 +1101,9 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
 
   if (wickets > 0 || overs > 0) {
     bd.bowling += wickets * 30;
+    if (wickets >= 3) bd.milestone += 4;
+    if (wickets >= 4) bd.milestone += 8;
     if (wickets >= 5) bd.milestone += 16;
-    else if (wickets >= 4) bd.milestone += 8;
-    else if (wickets >= 3) bd.milestone += 4;
 
     if (overs >= 2) {
       const economy = runsConceded / overs;
