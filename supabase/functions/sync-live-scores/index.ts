@@ -247,7 +247,95 @@ if (upcomingMatches?.length) {
         console.error(`Error updating match ${match.id}:`, matchErr);
       }
     }
+    // ── MOTM re-check for recently completed matches ──
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const { data: recentCompleted } = await supabase
+      .from("matches")
+      .select("id, cricbuzz_match_id, team_a, team_b")
+      .eq("status", "completed")
+      .gte("match_date", twoHoursAgo);
 
+    if (recentCompleted?.length) {
+      for (const rm of recentCompleted) {
+        // Check if MOTM already applied
+        const { data: motmCheck } = await supabase
+          .from("match_player_points")
+          .select("id")
+          .eq("match_id", rm.id)
+          .gt("breakdown->motm_bonus", 0)
+          .limit(1);
+
+        if (motmCheck?.length) continue; // Already has MOTM
+
+        if (rm.cricbuzz_match_id) {
+          const { data: html } = await supabase.rpc("http_get_text", {
+            target_url: `https://www.cricbuzz.com/live-cricket-scores/${rm.cricbuzz_match_id}`
+          });
+
+          if (html) {
+            const motmRegex = /playersOfTheMatch\\?":\s*$$\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\$$+)\\?"/;
+            const motmMatch = html.match(motmRegex);
+
+            if (motmMatch) {
+              const motmName = motmMatch[1];
+              console.log(`MOTM re-check: ${motmName} for ${rm.team_a} vs ${rm.team_b}`);
+
+              const { data: dbPlayers } = await supabase
+                .from("players")
+                .select("id, name");
+
+              const motmNorm = normalizeName(motmName);
+              const motmPlayer = dbPlayers?.find(
+                (p: any) => normalizeName(p.name) === motmNorm ||
+                  normalizeName(p.name).includes(motmNorm) ||
+                  motmNorm.includes(normalizeName(p.name))
+              );
+
+              if (motmPlayer) {
+                const { data: existing } = await supabase
+                  .from("match_player_points")
+                  .select("id, breakdown, points")
+                  .eq("match_id", rm.id)
+                  .eq("player_id", motmPlayer.id)
+                  .single();
+
+                if (existing && (!existing.breakdown?.motm_bonus || existing.breakdown.motm_bonus === 0)) {
+                  const newTotal = (existing.breakdown?.total || 0) + 30;
+                  const newBreakdown = { ...existing.breakdown, motm_bonus: 30, total: newTotal };
+
+                  await supabase
+                    .from("match_player_points")
+                    .update({ breakdown: newBreakdown, points: existing.points + 30 })
+                    .eq("id", existing.id);
+
+                  // Recalc user teams
+                  await recalcUserTeamPoints(supabase, rm.id);
+
+                  // Recalc profile totals
+                  const { data: affectedTeams } = await supabase
+                    .from("user_teams")
+                    .select("user_id")
+                    .eq("match_id", rm.id);
+
+                  if (affectedTeams) {
+                    for (const ut of affectedTeams) {
+                      const { data: allTeams } = await supabase
+                        .from("user_teams")
+                        .select("total_points")
+                        .eq("user_id", ut.user_id);
+                      const totalProfile = (allTeams || []).reduce((s: number, t: any) => s + (t.total_points || 0), 0);
+                      await supabase.from("profiles").update({ total_points: totalProfile }).eq("id", ut.user_id);
+                    }
+                  }
+
+                  console.log(`MOTM +30 applied to ${motmPlayer.name}, user teams recalculated`);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
     return new Response(
       JSON.stringify({ success: true, updated }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
