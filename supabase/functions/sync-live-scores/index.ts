@@ -223,7 +223,7 @@ if (upcomingMatches?.length) {
                         .select("total_points")
                         .eq("user_id", ut.user_id);
                       const totalProfile = (allTeams || []).reduce((s: number, t: any) => s + (t.total_points || 0), 0);
-                      await supabase.from("profiles").update({ total_points: totalProfile }).eq("id", ut.user_id);
+                      await supabase.from("profiles").update({ total_points: totalProfile }).eq("user_id", ut.user_id);
                     }
                   }
 
