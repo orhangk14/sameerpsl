@@ -273,7 +273,7 @@ if (upcomingMatches?.length) {
           });
 
           if (html) {
-            const motmRegex = /playersOfTheMatch\\?":\s*$$\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\$$+)\\?"/;
+            const motmRegex = /playersOfTheMatch\\?":\s*\[\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"/;
             const motmMatch = html.match(motmRegex);
 
             if (motmMatch) {
