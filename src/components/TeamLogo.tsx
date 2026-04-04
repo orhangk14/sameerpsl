@@ -21,14 +21,14 @@ const TEAM_ABBR: Record<string, string> = {
 };
 
 const TEAM_COLORS: Record<string, string> = {
-  'LQ': 'from-red-600 to-red-800',            'Lahore Qalandars': 'from-red-600 to-red-800',
+  'LQ': 'from-lime-500 to-green-600',            'Lahore Qalandars': 'from-lime-500 to-green-600',
   'KK': 'from-blue-700 to-red-600',           'Karachi Kings': 'from-blue-700 to-red-600',
-  'IU': 'from-red-600 to-orange-500',         'Islamabad United': 'from-red-600 to-orange-500',
+  'IU': 'from-red-600 to-red-800',            'Islamabad United': 'from-red-600 to-red-800',
   'PZ': 'from-yellow-400 to-yellow-600',      'Peshawar Zalmi': 'from-yellow-400 to-yellow-600',
   'QG': 'from-purple-600 to-purple-800',      'Quetta Gladiators': 'from-purple-600 to-purple-800',
   'MS': 'from-teal-700 to-teal-900',          'Multan Sultans': 'from-teal-700 to-teal-900',
   'HK': 'from-amber-700 to-stone-800',        'Hyderabad Kingsmen': 'from-amber-700 to-stone-800',
-  'RP': 'from-orange-500 to-orange-700',      'Rawalpindi Pindiz': 'from-orange-500 to-orange-700',
+  'RP': 'from-orange-400 to-orange-600',      'Rawalpindi Pindiz': 'from-orange-400 to-orange-600',
 };
 
 const TEAM_LOGOS: Record<string, string> = {
