@@ -88,7 +88,7 @@ const fallbackToPlayer = (fp: FallbackPlayer): Player => ({
 const LiveMyTeam = ({ players, captainId, viceCaptainId, matchPoints }: { players: Player[]; captainId: string | null; viceCaptainId: string | null; matchPoints: Map<string, { points: number; breakdown: any }> }) => {
   const totalPoints = useMemo(() => {
     return players.reduce((sum, p) => {
-      let pts = matchPoints.get(p.id)?.points ?? p.points;
+      let pts = matchPoints.get(p.id)?.points ?? 0;
       if (p.id === captainId) pts *= 2;
       else if (p.id === viceCaptainId) pts *= 1.5;
       return sum + pts;
@@ -111,7 +111,7 @@ const LiveMyTeam = ({ players, captainId, viceCaptainId, matchPoints }: { player
           const isCaptain = player.id === captainId;
           const isVC = player.id === viceCaptainId;
           const mpData = matchPoints.get(player.id);
-          const basePts = mpData?.points ?? player.points;
+          const basePts = mpData?.points ?? 0;
           const multipliedPts = isCaptain ? basePts * 2 : isVC ? basePts * 1.5 : basePts;
           const bd = mpData?.breakdown;
           return (

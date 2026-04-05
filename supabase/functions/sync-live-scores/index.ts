@@ -274,7 +274,9 @@ if (upcomingMatches?.length) {
 
         // Update match display scores (lightweight — always runs)
         const status = scorecard.matchEnded ? "completed" : "live";
-        const matchUpdate: any = { team_a_score: scorecard.teamAScore, team_b_score: scorecard.teamBScore, status };
+        const matchUpdate: any = { status };
+        if (scorecard.teamAScore !== null) matchUpdate.team_a_score = scorecard.teamAScore;
+        if (scorecard.teamBScore !== null) matchUpdate.team_b_score = scorecard.teamBScore;
         if (scorecard.winningTeam) matchUpdate.winning_team = scorecard.winningTeam;
         await supabase
           .from("matches")
@@ -539,13 +541,12 @@ async function tryCricbuzz(
           teamBLower.includes(key.toLowerCase()) && kws.some(kw => innTeam.includes(kw))
         );
       if (matchesA) {
-        teamAScore = teamAScore ? `${teamAScore} & ${inn.score}` : inn.score;
+          teamAScore = teamAScore ? `${teamAScore} & ${inn.score}` : inn.score;
       } else if (matchesB) {
-        teamBScore = teamBScore ? `${teamBScore} & ${inn.score}` : inn.score;
-      } else if (!teamAScore) {
-        teamAScore = inn.score;
+          teamBScore = teamBScore ? `${teamBScore} & ${inn.score}` : inn.score;
       } else {
-        teamBScore = inn.score;
+          // Don't blindly assign — log and skip unmatched innings
+          console.log(`Cricbuzz: innings team "${inn.team}" didn't match team_a="${match.team_a}" or team_b="${match.team_b}" — skipping`);
       }
     }
     // Fallback score extraction from title
@@ -1343,16 +1344,15 @@ async function updatePlayingXI(
 }
 
 // ─── Auto-Discovery Functions ───────────────────────────────────────────────
-
 const PSL_TEAM_KEYWORDS: Record<string, string[]> = {
-  "Quetta": ["quetta", "gladiators", "qtg"],
-  "Karachi": ["karachi", "kings", "krk"],
-  "Lahore": ["lahore", "qalandars", "lhq"],
-  "Islamabad": ["islamabad", "united", "isu"],
-  "Peshawar": ["peshawar", "zalmi", "psz"],
-  "Multan": ["multan", "sultans", "ms"],
-  "Rawalpindi": ["rawalpindi", "raiders", "pindiz", "rwp"],
-  "Hyderabad": ["hyderabad", "kingsmen", "hydk"],
+  "Quetta": ["quetta", "gladiators", "qtg", "que", "glad"],
+  "Karachi": ["karachi", "kings", "krk", "kar"],
+  "Lahore": ["lahore", "qalandars", "lhq", "lah", "qal"],
+  "Islamabad": ["islamabad", "united", "isu", "isl"],
+  "Peshawar": ["peshawar", "zalmi", "psz", "pes", "zal"],
+  "Multan": ["multan", "sultans", "ms", "mul", "sul"],
+  "Rawalpindi": ["rawalpindi", "raiders", "pindiz", "rwp", "raw", "pin"],
+  "Hyderabad": ["hyderabad", "kingsmen", "hydk", "hyd", "king"],
 };
 
 function teamMatchesKeywords(teamName: string, target: string): boolean {
