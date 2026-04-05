@@ -31,7 +31,7 @@ interface Player {
   image_url?: string | null;
 }
 
-const getBudget = () => 85;
+const getBudget = () => 90;
 const MAX_PER_TEAM = 7;
 const ROLE_CONSTRAINTS: Record<PlayerRole, [number, number]> = {
   WK: [1, 4],
