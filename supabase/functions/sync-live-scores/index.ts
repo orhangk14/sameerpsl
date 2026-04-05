@@ -550,7 +550,7 @@ async function tryCricbuzz(
       }
     }
     // Fallback score extraction from title
-    if (!teamAScore) {
+    if (!teamAScore && !teamBScore) {
       const titleRegex = /(\w+)\s+(\d+)\/(\d+)\s*\(([\d.]+)\)/g;
       let tm;
       while ((tm = titleRegex.exec(html)) !== null) {
