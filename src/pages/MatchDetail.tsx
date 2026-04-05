@@ -626,22 +626,26 @@ const isLocked = useMemo(() => {
               </TabsList>
               <TabsContent value="all-players">
                 <div className="space-y-2">
-                  {allPlayers.map(player => (
-                    <PlayerCard
-                      key={player.id}
-                      player={player}
-                      roleColors={ROLE_COLORS}
-                      selected={false}
-                      isCaptain={false}
-                      isViceCaptain={false}
-                      onSelect={() => {}}
-                      onCaptain={() => {}}
-                      onViceCaptain={() => {}}
-                      disabled={true}
-                      isLocked={true}
-                      showPoints={true}
-                    />
-                  ))}
+                  {allPlayers.map(player => {
+                    const mpPts = matchPointsMap.get(player.id);
+                    const displayPlayer = mpPts ? { ...player, points: mpPts.points } : player;
+                    return (
+                      <PlayerCard
+                        key={player.id}
+                        player={displayPlayer}
+                        roleColors={ROLE_COLORS}
+                        selected={false}
+                        isCaptain={false}
+                        isViceCaptain={false}
+                        onSelect={() => {}}
+                        onCaptain={() => {}}
+                        onViceCaptain={() => {}}
+                        disabled={true}
+                        isLocked={true}
+                        showPoints={true}
+                      />
+                    );
+                  })}
                 </div>
               </TabsContent>
               <TabsContent value="leaderboard">
