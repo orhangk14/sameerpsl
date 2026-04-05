@@ -325,7 +325,6 @@ const MatchDetail = () => {
     }
     return m;
   }, [matchPlayerPoints]);
-
   const { data: existingTeam } = useQuery({
     queryKey: ['user-team', id],
     enabled: !!user,
@@ -584,7 +583,7 @@ const isLocked = useMemo(() => {
               <div className="space-y-2">
                 {filteredPlayers.map(player => {
                   const mpPts = matchPointsMap.get(player.id);
-                  const displayPlayer = mpPts ? { ...player, points: mpPts.points } : player;
+                  const displayPlayer = mpPts ? { ...player, points: mpPts.points } : { ...player, points: 0 };
                   return (
                     <PlayerCard
                       key={player.id}
@@ -628,7 +627,7 @@ const isLocked = useMemo(() => {
                 <div className="space-y-2">
                   {allPlayers.map(player => {
                     const mpPts = matchPointsMap.get(player.id);
-                    const displayPlayer = mpPts ? { ...player, points: mpPts.points } : player;
+                    const displayPlayer = mpPts ? { ...player, points: mpPts.points } : { ...player, points: 0 };
                     return (
                       <PlayerCard
                         key={player.id}
