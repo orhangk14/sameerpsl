@@ -331,8 +331,6 @@ export default function AdminScores() {
                   {syncing ? 'Reopening...' : 'Reopen & Resync'}
                 </Button>
               )}
-                </Button>
-              )}
             </div>
           </>
         )}
