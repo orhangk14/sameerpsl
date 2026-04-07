@@ -80,19 +80,6 @@ Deno.serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    // ── Reopen & Resync mode: set match back to live so cron re-processes it ──
-    if (body.reopen) {
-      // Do the full recalculate directly — no need to rely on sync-live-scores
-      const result = await recalculateFromSource(supabase, match_id);
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: `Reopened & recalculated: ${result.playersMatched} players, winner: ${result.winningTeam || 'unknown'}, MOTM: ${result.playerOfTheMatch || 'none'}`,
-          ...result
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
     // ── Manual update mode ──
     // Update match scores
     const { error: matchError } = await supabase
