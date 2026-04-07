@@ -266,26 +266,21 @@ if (upcomingMatches?.length) {
         if (!scorecard && CRICAPI_KEY && match.external_id) {
           scorecard = await tryCricAPI(CRICAPI_KEY, match.external_id, match, supabase);
         }
-
         if (!scorecard) {
           console.log(`All sources failed for match ${match.id}, awaiting manual entry`);
           continue;
         }
 
-        // Update match display scores (lightweight — always runs)
-        const status = scorecard.matchEnded ? "completed" : "live";
-        const matchUpdate: any = { status };
-        if (scorecard.teamAScore !== null) matchUpdate.team_a_score = scorecard.teamAScore;
-        if (scorecard.teamBScore !== null) matchUpdate.team_b_score = scorecard.teamBScore;
-        if (scorecard.winningTeam) matchUpdate.winning_team = scorecard.winningTeam;
-        await supabase
-          .from("matches")
-          .update(matchUpdate)
-          .eq("id", match.id);
+        // Update scores display ONLY (status stays "live" until all work is done)
+        const scoreUpdate: any = {};
+        if (scorecard.teamAScore !== null) scoreUpdate.team_a_score = scorecard.teamAScore;
+        if (scorecard.teamBScore !== null) scoreUpdate.team_b_score = scorecard.teamBScore;
+        if (Object.keys(scoreUpdate).length > 0) {
+          await supabase.from("matches").update(scoreUpdate).eq("id", match.id);
+        }
 
-        // ── Heavy work: ONLY when match just completed ──
         if (scorecard.matchEnded) {
-          console.log(`Match ${match.id} ended — running full point calculation`);
+          console.log(`Match ${match.id} ended — running full point calculation BEFORE marking completed`);
 
           // Re-fetch with full scorecard data
           let fullScorecard = scorecard;
@@ -294,38 +289,40 @@ if (upcomingMatches?.length) {
             if (full) fullScorecard = full;
           }
 
-          // Update Playing XI (only CricAPI has this)
-          if (fullScorecard.source === "cricapi" && CRICAPI_KEY && match.external_id) {
-            await updatePlayingXI(supabase, CRICAPI_KEY, match.external_id, match.id);
-          }
-
           // Compute player points from full scorecard
           await computePlayerPoints(supabase, fullScorecard, match.id, aliasMap);
 
-          // Recalculate user team points
+          // Recalculate user team points + profile totals
           await recalcUserTeamPoints(supabase, match.id);
-                    // Reset is_playing flags for both teams
+
+          // Reset is_playing flags for both teams
           console.log(`Resetting is_playing for ${match.team_a} and ${match.team_b}`);
           await supabase
             .from("players")
             .update({ is_playing: null })
             .eq("is_playing", true)
             .in("team", [match.team_a, match.team_b]);
+
+          // ✅ LAST STEP: Mark completed after everything is done
+          const completionUpdate: any = { status: "completed" };
+          if (fullScorecard.winningTeam) completionUpdate.winning_team = fullScorecard.winningTeam;
+          if (fullScorecard.teamAScore) completionUpdate.team_a_score = fullScorecard.teamAScore;
+          if (fullScorecard.teamBScore) completionUpdate.team_b_score = fullScorecard.teamBScore;
+          await supabase.from("matches").update(completionUpdate).eq("id", match.id);
+          console.log(`Match ${match.id} marked completed AFTER all recalcs done`);
+
         } else {
           console.log(`Match ${match.id} still live — fetching scorecard for live points`);
 
-          // Fetch full scorecard even during live match
           let liveScorecard = scorecard;
           if (match.cricbuzz_match_id) {
             const full = await tryCricbuzz(match.cricbuzz_match_id, match, supabase, false);
             if (full) {
               liveScorecard = full;
-              // Keep match as live (don't let scorecard override)
               liveScorecard.matchEnded = false;
             }
           }
 
-          // Compute live player points
           if (liveScorecard.players.length > 0) {
             await computePlayerPoints(supabase, liveScorecard, match.id, aliasMap);
             await recalcUserTeamPoints(supabase, match.id);
@@ -1292,7 +1289,7 @@ async function recalcUserTeamPoints(
         .eq("user_id", userId);
     }
   } catch (err) {
-    console.error("Error recalculating user team points:", err);
+    console.error("Error recalculating user team points for match", matchId, err);
   }
 }
 
