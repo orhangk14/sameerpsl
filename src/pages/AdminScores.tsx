@@ -321,16 +321,6 @@ export default function AdminScores() {
                   {syncing ? 'Recalculating...' : 'Recalculate from Cricbuzz'}
                 </Button>
               )}
-              {selectedMatchData?.status === 'completed' && (
-                <Button 
-                  variant="destructive" 
-                  onClick={() => reopenAndResync(selectedMatch)} 
-                  disabled={syncing}
-                >
-                  {syncing ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                  {syncing ? 'Reopening...' : 'Reopen & Resync'}
-                </Button>
-              )}
             </div>
           </>
         )}
