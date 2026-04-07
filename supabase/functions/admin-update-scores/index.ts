@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const body = await req.json();
-    const { match_id, team_a_score, team_b_score, status, cricbuzz_match_id, espn_match_id, player_points, recalculate } = body;
+    const { match_id, team_a_score, team_b_score, status, cricbuzz_match_id, espn_match_id, player_points, recalculate, reopen } = body;
 
     if (!match_id) {
       return new Response(JSON.stringify({ error: "match_id required" }), {
@@ -80,7 +80,45 @@ Deno.serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    // ── Reopen & Resync mode: set match back to live so cron re-processes it ──
+    if (body.reopen) {
+      const { data: matchData } = await supabase
+        .from("matches")
+        .select("id, team_a, team_b, status")
+        .eq("id", match_id)
+        .single();
 
+      if (!matchData) {
+        return new Response(JSON.stringify({ error: "Match not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      await supabase
+        .from("matches")
+        .update({ status: "live", updated_at: new Date().toISOString() })
+        .eq("id", match_id);
+
+      // Trigger sync-live-scores to re-process immediately
+      try {
+        await fetch(`${SUPABASE_URL}/functions/v1/sync-live-scores`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch (e) {
+        console.log("Auto-resync trigger failed, cron will pick it up:", e);
+      }
+
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          message: `${matchData.team_a} vs ${matchData.team_b} set to live. Resync triggered.`,
+          previous_status: matchData.status 
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     // ── Manual update mode ──
     // Update match scores
     const { error: matchError } = await supabase
@@ -451,10 +489,9 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
       else if (sr < 60) bd.sr_bonus -= 4;
       else if (sr < 70) bd.sr_bonus -= 2;
     }
+    if (runs >= 25) bd.milestone += 8;
+    if (runs >= 50) bd.milestone += 8;
     if (runs >= 100) bd.milestone += 16;
-    else if (runs >= 50) bd.milestone += 8;
-    else if (runs >= 25) bd.milestone += 8;
-    if (runs === 0 && ps.out) bd.batting -= 2;
   }
 
   const wickets = ps.wickets || 0;
@@ -463,9 +500,9 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
 
   if (wickets > 0 || overs > 0) {
     bd.bowling += wickets * 30;
+    if (wickets >= 3) bd.milestone += 4;
+    if (wickets >= 4) bd.milestone += 8;
     if (wickets >= 5) bd.milestone += 16;
-    else if (wickets >= 4) bd.milestone += 8;
-    else if (wickets >= 3) bd.milestone += 4;
     if (overs >= 2) {
       const economy = runsConceded / overs;
       if (economy < 5) bd.er_bonus += 6;
@@ -555,7 +592,7 @@ async function recalcUserTeamPoints(supabase: any, matchId: string) {
       else total += pts;
     }
 
-    await supabase.from("user_teams").update({ total_points: Math.round(total) }).eq("id", ut.id);
+    await supabase.from("user_teams").update({ total_points: parseFloat(total.toFixed(1)) }).eq("id", ut.id);
   }
 
   // Update profile total points

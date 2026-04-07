@@ -167,6 +167,24 @@ export default function AdminScores() {
     }
   }
 
+  async function reopenAndResync(matchId: string) {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-update-scores', {
+        body: { match_id: matchId, reopen: true },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(data.message || 'Match set to live & resync triggered');
+      loadMatches();
+      if (selectedMatch === matchId) loadMatchDetails();
+    } catch (err: any) {
+      toast.error(err.message || 'Reopen failed');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (loading) {
     return (
       <Layout>
@@ -301,6 +319,18 @@ export default function AdminScores() {
                 <Button variant="secondary" onClick={() => recalculatePoints(selectedMatch)} disabled={syncing}>
                   {syncing ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
                   {syncing ? 'Recalculating...' : 'Recalculate from Cricbuzz'}
+                </Button>
+              )}
+              {selectedMatchData?.status === 'completed' && (
+                <Button 
+                  variant="destructive" 
+                  onClick={() => reopenAndResync(selectedMatch)} 
+                  disabled={syncing}
+                >
+                  {syncing ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                  {syncing ? 'Reopening...' : 'Reopen & Resync'}
+                </Button>
+              )}
                 </Button>
               )}
             </div>
