@@ -82,39 +82,13 @@ Deno.serve(async (req) => {
     }
     // ── Reopen & Resync mode: set match back to live so cron re-processes it ──
     if (body.reopen) {
-      const { data: matchData } = await supabase
-        .from("matches")
-        .select("id, team_a, team_b, status")
-        .eq("id", match_id)
-        .single();
-
-      if (!matchData) {
-        return new Response(JSON.stringify({ error: "Match not found" }), {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      await supabase
-        .from("matches")
-        .update({ status: "live", updated_at: new Date().toISOString() })
-        .eq("id", match_id);
-
-      // Trigger sync-live-scores to re-process immediately
-      try {
-        await fetch(`${SUPABASE_URL}/functions/v1/sync-live-scores`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (e) {
-        console.log("Auto-resync trigger failed, cron will pick it up:", e);
-      }
-
+      // Do the full recalculate directly — no need to rely on sync-live-scores
+      const result = await recalculateFromSource(supabase, match_id);
       return new Response(
         JSON.stringify({ 
           success: true, 
-          message: `${matchData.team_a} vs ${matchData.team_b} set to live. Resync triggered.`,
-          previous_status: matchData.status 
+          message: `Reopened & recalculated: ${result.playersMatched} players, winner: ${result.winningTeam || 'unknown'}, MOTM: ${result.playerOfTheMatch || 'none'}`,
+          ...result
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
