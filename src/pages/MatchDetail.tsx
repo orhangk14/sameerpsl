@@ -752,7 +752,7 @@ const isLocked = useMemo(() => {
                   </Button>
                 )}
                 {!isValid && selected.size > 0 && (
-                  <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs font-display font-semibold">
+                  <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-destructive/90 border border-destructive text-white text-xs font-display font-semibold">
                     <AlertTriangle className="w-4 h-4 shrink-0" />
                     <span>
                       {selected.size < 11
