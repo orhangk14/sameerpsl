@@ -751,6 +751,23 @@ const isLocked = useMemo(() => {
                     👁️ Preview Team
                   </Button>
                 )}
+                {selected.size === 11 && (!captain || !viceCaptain) && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs font-display">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>Select a Captain (2x) and Vice-Captain (1.5x) to save your team.</span>
+                  </div>
+                )}
+                {selected.size === 11 && captain && viceCaptain && !Object.entries(ROLE_CONSTRAINTS).every(([role, [min]]) => roleCounts[role as PlayerRole] >= min) && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs font-display">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>
+                      Team needs minimum: {Object.entries(ROLE_CONSTRAINTS)
+                        .filter(([role, [min]]) => roleCounts[role as PlayerRole] < min)
+                        .map(([role, [min]]) => `${min} ${role}`)
+                        .join(', ')}
+                    </span>
+                  </div>
+                )}
                 <Button
                   onClick={() => saveMutation.mutate()}
                   disabled={!isValid || saveMutation.isPending}
