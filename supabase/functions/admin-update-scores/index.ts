@@ -186,7 +186,7 @@ async function recalculateFromSource(supabase: any, matchId: string) {
       winningTeam = extractWinningTeam(statusMatch?.[1], match.team_a, match.team_b);
     }
     // Extract MOTM
-    const motmRegex = /playersOfTheMatch\\?":\s*\[\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"/;
+    const motmRegex = const motmRegex = new RegExp('playersOfTheMatch\\\\?":\\s*\$$\\s*\\{[^}]*?\\\\?"name\\\\?":\\s*\\\\?"([^"\\\$$+)\\\\?"');\\?":\s*\[\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"/;
     const motmMatch = liveHtml.match(motmRegex);
     if (motmMatch) {
       playerOfTheMatch = motmMatch[1];
