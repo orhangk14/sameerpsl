@@ -663,7 +663,7 @@ const isLocked = useMemo(() => {
             )}
 
             {notPlayingCount > 0 && !isLocked && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm font-display">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-destructive/90 border border-destructive text-white text-sm font-display">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>{notPlayingCount} player(s) in your team not in Playing XI!</span>
               </div>
