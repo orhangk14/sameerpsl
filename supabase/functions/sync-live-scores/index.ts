@@ -186,22 +186,41 @@ Deno.serve(async (req) => {
         }
 
         if (scorecard.matchEnded) {
-          console.log("Match " + match.id + " completed — " + (scorecard.winningTeam || "no winner detected"));
+          // Get current stored scores to check if this is first completion detection
+          const { data: currentMatch } = await supabase
+            .from("matches")
+            .select("team_a_score, team_b_score")
+            .eq("id", match.id)
+            .single();
 
-          if (!dryRun) {
-            await supabase
-              .from("players")
-              .update({ is_playing: null })
-              .eq("is_playing", true)
-              .in("team", [match.team_a, match.team_b]);
+          const storedA = currentMatch?.team_a_score || "";
+          const storedB = currentMatch?.team_b_score || "";
+          const newA = scorecard.teamAScore || "";
+          const newB = scorecard.teamBScore || "";
+          const scoresStable = storedA === newA && storedB === newB && storedA !== "";
 
-            const completionUpdate: Record<string, any> = { status: "completed" };
-            if (scorecard.winningTeam) completionUpdate.winning_team = scorecard.winningTeam;
-            if (scorecard.teamAScore) completionUpdate.team_a_score = scorecard.teamAScore;
-            if (scorecard.teamBScore) completionUpdate.team_b_score = scorecard.teamBScore;
-            await supabase.from("matches").update(completionUpdate).eq("id", match.id);
+          if (!scoresStable) {
+            // First time seeing Complete, or scores still changing — process as live, don't finalize
+            console.log("Match " + match.id + " completion detected but scores not yet stable (" + storedA + " -> " + newA + ", " + storedB + " -> " + newB + ") — keeping live for one more tick");
+          } else {
+            // Scores stable across ticks — safe to finalize
+            console.log("Match " + match.id + " confirmed complete with stable scores — finalizing");
+
+            if (!dryRun) {
+              await supabase
+                .from("players")
+                .update({ is_playing: null })
+                .eq("is_playing", true)
+                .in("team", [match.team_a, match.team_b]);
+
+              const completionUpdate: Record<string, any> = { status: "completed" };
+              if (scorecard.winningTeam) completionUpdate.winning_team = scorecard.winningTeam;
+              if (scorecard.teamAScore) completionUpdate.team_a_score = scorecard.teamAScore;
+              if (scorecard.teamBScore) completionUpdate.team_b_score = scorecard.teamBScore;
+              await supabase.from("matches").update(completionUpdate).eq("id", match.id);
+            }
+            console.log((dryRun ? "[DRY RUN] Would mark" : "Marked") + " match " + match.id + " completed");
           }
-          console.log((dryRun ? "[DRY RUN] Would mark" : "Marked") + " match " + match.id + " completed");
         }
 
         updated++;
