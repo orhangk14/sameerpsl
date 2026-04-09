@@ -364,9 +364,8 @@ const isLocked = useMemo(() => {
       if (!user || !id || !captain || !viceCaptain) throw new Error('Missing data');
       if (isLocked) throw new Error('Team is locked');
 
-      // Always upsert players by name+team to get real DB IDs
       const playersToSave = allPlayers.filter(p => selected.has(p.id));
-      const idMap = new Map<string, string>(); // old fallback ID -> real DB ID
+      const idMap = new Map<string, string>();
 
       for (const p of playersToSave) {
         const { data: upserted } = await supabase.from('players').upsert(
@@ -376,7 +375,6 @@ const isLocked = useMemo(() => {
 
         if (upserted) {
           idMap.set(p.id, upserted.id);
-          // Link to match_players
           await supabase.from('match_players').upsert(
             { match_id: id, player_id: upserted.id },
             { onConflict: 'match_id,player_id' }
@@ -384,7 +382,6 @@ const isLocked = useMemo(() => {
         }
       }
 
-      // Remap captain/viceCaptain to real DB IDs
       const realCaptain = idMap.get(captain!) || captain!;
       const realViceCaptain = idMap.get(viceCaptain!) || viceCaptain!;
       const realSelectedIds = Array.from(selected).map(sid => idMap.get(sid) || sid);
@@ -396,11 +393,33 @@ const isLocked = useMemo(() => {
         .single();
       if (teamError) throw teamError;
 
+      // Delete old players
       await supabase.from('team_players').delete().eq('user_team_id', team.id);
+
+      // Insert new players
       const { error: playersError } = await supabase
         .from('team_players')
         .insert(realSelectedIds.map(playerId => ({ user_team_id: team.id, player_id: playerId })));
-      if (playersError) throw playersError;
+
+      // If insert failed, delete the user_team so user can retry cleanly
+      if (playersError) {
+        console.error('team_players insert failed, rolling back user_team:', playersError);
+        await supabase.from('user_teams').delete().eq('id', team.id);
+        throw new Error('Failed to save team players. Please try again.');
+      }
+
+      // Verify all 11 saved
+      const { count } = await supabase
+        .from('team_players')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_team_id', team.id);
+
+      if (count !== 11) {
+        console.error('team_players count mismatch: expected 11, got ' + count);
+        await supabase.from('team_players').delete().eq('user_team_id', team.id);
+        await supabase.from('user_teams').delete().eq('id', team.id);
+        throw new Error('Team save incomplete (' + count + '/11 players). Please try again.');
+      }
     },
     onSuccess: () => {
       toast.success('Team saved successfully! 🏏');
