@@ -186,7 +186,6 @@ Deno.serve(async (req) => {
         }
 
         if (scorecard.matchEnded) {
-          // Get current stored scores to check if this is first completion detection
           const { data: currentMatch } = await supabase
             .from("matches")
             .select("team_a_score, team_b_score")
@@ -200,10 +199,8 @@ Deno.serve(async (req) => {
           const scoresStable = storedA === newA && storedB === newB && storedA !== "";
 
           if (!scoresStable) {
-            // First time seeing Complete, or scores still changing — process as live, don't finalize
             console.log("Match " + match.id + " completion detected but scores not yet stable (" + storedA + " -> " + newA + ", " + storedB + " -> " + newB + ") — keeping live for one more tick");
           } else {
-            // Scores stable across ticks — safe to finalize
             console.log("Match " + match.id + " confirmed complete with stable scores — finalizing");
 
             if (!dryRun) {
@@ -247,13 +244,34 @@ function jsonResponse(body: Record<string, any>, status = 200): Response {
   });
 }
 
-function buildMotmRegex(): RegExp {
-  const q = '\\\\?"';
-  const ws = '\\s*';
-  const open = '\$$';
-  return new RegExp(
-    'playersOfTheMatch' + q + ':' + ws + open + ws + '\\{[^}]*?' + q + 'name' + q + ':' + ws + q + '([^"\\\$$+)' + q
-  );
+function findMotmName(html: string): string | null {
+  const marker = "playersOfTheMatch";
+  const pos = html.indexOf(marker);
+  if (pos === -1) return null;
+
+  const chunk = html.substring(pos, Math.min(html.length, pos + 500));
+  const namePos = chunk.indexOf("name");
+  if (namePos === -1) return null;
+
+  const colonPos = chunk.indexOf(":", namePos + 4);
+  if (colonPos === -1) return null;
+
+  let start = colonPos + 1;
+  while (start < chunk.length) {
+    const ch = chunk.charAt(start);
+    if (ch !== " " && ch !== '"' && ch !== "\\" && ch !== "\n" && ch !== "\t") break;
+    start++;
+  }
+
+  let end = start;
+  while (end < chunk.length) {
+    const ch = chunk.charAt(end);
+    if (ch === '"' || ch === "\\" || ch === "," || ch === "}") break;
+    end++;
+  }
+
+  const name = chunk.substring(start, end).trim();
+  return name.length > 2 ? name : null;
 }
 
 function isScopedState(html: string, teamA: string, teamB: string, state: string): boolean {
@@ -330,11 +348,9 @@ async function handleMotmRecheck(
 
     if (!html) continue;
 
-    const motmRegex = buildMotmRegex();
-    const motmMatch = html.match(motmRegex);
-    if (!motmMatch) continue;
+    const motmName = findMotmName(html);
+    if (!motmName) continue;
 
-    const motmName = motmMatch[1];
     console.log("MOTM re-check: " + motmName + " for " + rm.team_a + " vs " + rm.team_b);
 
     const { data: matchPoints } = await supabase
@@ -448,11 +464,8 @@ async function fetchCricbuzzFull(
       }
     }
 
-    let playerOfTheMatch: string | null = null;
-    const motmRegex = buildMotmRegex();
-    const motmMatch = html.match(motmRegex);
-    if (motmMatch) {
-      playerOfTheMatch = motmMatch[1];
+    const playerOfTheMatch = findMotmName(html);
+    if (playerOfTheMatch) {
       console.log("Cricbuzz: MOTM = " + playerOfTheMatch);
     }
 
@@ -759,7 +772,6 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
   bd.total = bd.starting_xi + bd.batting + bd.bowling + bd.fielding + bd.sr_bonus + bd.er_bonus + bd.milestone;
   return bd;
 }
-
 async function recalcUserTeamPoints(
   supabase: ReturnType<typeof createClient>,
   matchId: string,
@@ -781,12 +793,10 @@ async function recalcUserTeamPoints(
 
     if (!allTeamPlayers?.length) return;
 
-    const allPlayerIds = [...new Set(allTeamPlayers.map(tp => tp.player_id))];
     const { data: allMatchPoints } = await supabase
       .from("match_player_points")
       .select("player_id, points")
-      .eq("match_id", matchId)
-      .in("player_id", allPlayerIds);
+      .eq("match_id", matchId);
 
     const pointsMap = new Map((allMatchPoints || []).map(mp => [mp.player_id, mp.points]));
 
