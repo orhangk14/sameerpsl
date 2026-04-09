@@ -161,7 +161,7 @@ export const PSL_SQUADS: Record<string, FallbackPlayer[]> = {
     { name: 'Sufiyan Muqeem', role: 'Bowler' },
     { name: 'Khurram Shahzad', role: 'Bowler' },
     // New additions
-    { name: 'Farhan Yousuf', role: 'Batsman' },
+    { name: 'Farhan Yousaf', role: 'Batsman' },
     { name: 'Shoriful Islam', role: 'Bowler' },
     { name: 'Brian Bennett', role: 'Batting Allrounder' },
   ]),
