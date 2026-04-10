@@ -6,8 +6,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 interface PlayerStats {
   name: string;
   runs?: number;
@@ -61,8 +59,6 @@ const PSL_TEAM_KEYWORDS: Record<string, string[]> = {
   "Hyderabad": ["hyderabad", "kingsmen", "hydk", "hyd", "king"],
 };
 
-// ─── Main Handler ───────────────────────────────────────────────────────────
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -101,138 +97,119 @@ Deno.serve(async (req) => {
         .gte("match_date", sixHoursAgo),
     ]);
 
+    // Auto-transition upcoming -> live
     if (pendingMatches?.length) {
-      const transitionChecks = pendingMatches
-        .filter(pm => pm.cricbuzz_match_id)
-        .map(async (pm) => {
-          const { data: html } = await supabase.rpc("http_get_text", {
-            target_url: `https://www.cricbuzz.com/live-cricket-scores/${pm.cricbuzz_match_id}`
-          });
-          if (html && isScopedState(html, pm.team_a, pm.team_b, "In Progress")) {
-            if (!dryRun) {
-              await supabase.from("matches").update({ status: "live" }).eq("id", pm.id);
-            }
-            console.log(`${dryRun ? "[DRY RUN] Would transition" : "Transitioned"} ${pm.team_a} vs ${pm.team_b} to live`);
-            liveMatches?.push({ ...pm, status: "live" });
-          }
+      for (const pm of pendingMatches) {
+        if (!pm.cricbuzz_match_id) continue;
+        const { data: html } = await supabase.rpc("http_get_text", {
+          target_url: "https://www.cricbuzz.com/live-cricket-scores/" + pm.cricbuzz_match_id
         });
-      await Promise.all(transitionChecks);
+        if (html && isScopedState(html, pm.team_a, pm.team_b, "In Progress")) {
+          if (!dryRun) {
+            await supabase.from("matches").update({ status: "live" }).eq("id", pm.id);
+          }
+          console.log((dryRun ? "[DRY RUN] Would transition " : "Transitioned ") + pm.team_a + " vs " + pm.team_b + " to live");
+          liveMatches?.push({ ...pm, status: "live" });
+        }
+      }
     }
 
+    // MOTM re-check
     if (recentCompleted?.length) {
       await handleMotmRecheck(supabase, recentCompleted, dryRun);
     }
 
+    // Completion integrity check
     if (recentCompleted?.length) {
-      const integrityChecks = recentCompleted
-        .filter(rm => rm.cricbuzz_match_id)
-        .map(async (rm) => {
-          const { data: html } = await supabase.rpc("http_get_text", {
-            target_url: `https://www.cricbuzz.com/live-cricket-scores/${rm.cricbuzz_match_id}`
-          });
-          if (html && isScopedState(html, rm.team_a, rm.team_b, "In Progress")) {
-            console.warn(`INTEGRITY: Match ${rm.id} (${rm.team_a} vs ${rm.team_b}) marked completed but Cricbuzz says In Progress — reverting to live`);
-            if (!dryRun) {
-              await supabase
-                .from("matches")
-                .update({ status: "live", winning_team: null })
-                .eq("id", rm.id);
-            }
-            liveMatches?.push({ ...rm, status: "live" });
-          }
+      for (const rm of recentCompleted) {
+        if (!rm.cricbuzz_match_id) continue;
+        const { data: html } = await supabase.rpc("http_get_text", {
+          target_url: "https://www.cricbuzz.com/live-cricket-scores/" + rm.cricbuzz_match_id
         });
-      await Promise.all(integrityChecks);
+        if (html && isScopedState(html, rm.team_a, rm.team_b, "In Progress")) {
+          console.warn("INTEGRITY: " + rm.team_a + " vs " + rm.team_b + " reverted to live");
+          if (!dryRun) {
+            await supabase.from("matches").update({ status: "live", winning_team: null }).eq("id", rm.id);
+          }
+          liveMatches?.push({ ...rm, status: "live" });
+        }
+      }
     }
 
     if (!liveMatches?.length) {
       return jsonResponse({ success: true, message: "No live matches to update", updated: 0 });
     }
 
-    const [aliasMap, { data: dbPlayers }] = await Promise.all([
-      loadAliasMap(supabase),
-      supabase.from("players").select("id, name, team, external_id"),
-    ]);
-
-    if (!dbPlayers?.length) {
-      return jsonResponse({ success: true, message: "No players in database", updated: 0 });
-    }
-
-    const playerIndex = buildPlayerIndex(dbPlayers, aliasMap);
+    const aliasMap = await loadAliasMap(supabase);
     let updated = 0;
 
     for (const match of liveMatches) {
       try {
         if (!match.cricbuzz_match_id) {
-          console.log(`Match ${match.id} has no cricbuzz_match_id — skipping`);
+          console.log("Match " + match.id + " has no cricbuzz_match_id — skipping");
           continue;
         }
 
-        const scorecard = await fetchCricbuzzFull(match.cricbuzz_match_id, match, supabase);
+        // STEP 1: Fetch scores page (quick, for score display + state detection)
+        const scorecard = await fetchCricbuzzScores(match.cricbuzz_match_id, match, supabase);
         if (!scorecard) {
-          console.log(`No scorecard data for match ${match.id}`);
+          console.log("No score data for match " + match.id);
           continue;
         }
 
-        // Read current scores BEFORE updating (needed for stable-score completion check)
-        let storedA = "";
-        let storedB = "";
+        // Update score display
+        const scoreUpdate: Record<string, string> = {};
+        if (scorecard.teamAScore) scoreUpdate.team_a_score = scorecard.teamAScore;
+        if (scorecard.teamBScore) scoreUpdate.team_b_score = scorecard.teamBScore;
+        if (Object.keys(scoreUpdate).length > 0 && !dryRun) {
+          await supabase.from("matches").update(scoreUpdate).eq("id", match.id);
+        }
+        console.log((dryRun ? "[DRY RUN] " : "") + "Scores: " + scorecard.teamAScore + " / " + scorecard.teamBScore);
+
+        // STEP 2: Fetch full scorecard page SEPARATELY for player stats
+        console.log("Fetching full scorecard for match " + match.id);
+        const fullScorecard = await fetchCricbuzzFullScorecard(match.cricbuzz_match_id, match, supabase, scorecard);
+
+        if (fullScorecard && fullScorecard.players.length > 0) {
+          console.log("Processing " + fullScorecard.players.length + " players");
+          for (const p of fullScorecard.players) {
+            console.log("  PLAYER: " + p.name + " | R:" + (p.runs || 0) + " B:" + (p.balls || 0) + " W:" + (p.wickets || 0) + " O:" + (p.oversBowled || 0) + " C:" + (p.catches || 0));
+          }
+          await computePlayerPoints(supabase, fullScorecard, match.id, aliasMap, dryRun);
+          await recalcUserTeamPoints(supabase, match.id, dryRun);
+        }
+
+        // STEP 3: Handle completion with delayed stable-score check
         if (scorecard.matchEnded) {
           const { data: currentMatch } = await supabase
             .from("matches")
             .select("team_a_score, team_b_score")
             .eq("id", match.id)
             .single();
-          storedA = currentMatch?.team_a_score || "";
-          storedB = currentMatch?.team_b_score || "";
-        }
-
-        const scoreUpdate: Record<string, string> = {};
-        if (scorecard.teamAScore) scoreUpdate.team_a_score = scorecard.teamAScore;
-        if (scorecard.teamBScore) scoreUpdate.team_b_score = scorecard.teamBScore;
-
-        if (Object.keys(scoreUpdate).length > 0) {
-          if (!dryRun) {
-            await supabase.from("matches").update(scoreUpdate).eq("id", match.id);
-          }
-          console.log(`${dryRun ? "[DRY RUN] " : ""}Scores: ${scorecard.teamAScore} / ${scorecard.teamBScore}`);
-        }
-
-        if (scorecard.players.length > 0) {
-          await computePlayerPoints(supabase, scorecard, match.id, playerIndex, dbPlayers, dryRun);
-          await recalcUserTeamPoints(supabase, match.id, dryRun);
-        }
-
-        // ── Delayed completion (stable scores across two ticks) ──
-        if (scorecard.matchEnded) {
+          const storedA = currentMatch?.team_a_score || "";
+          const storedB = currentMatch?.team_b_score || "";
           const newA = scorecard.teamAScore || "";
           const newB = scorecard.teamBScore || "";
           const scoresStable = storedA === newA && storedB === newB && storedA !== "";
 
           if (!scoresStable) {
-            console.log(`Match ${match.id} completion detected but scores not yet stable (${storedA} -> ${newA}, ${storedB} -> ${newB}) — keeping live for one more tick`);
+            console.log("Match " + match.id + " completion detected but scores not stable — keeping live");
           } else {
-            console.log(`Match ${match.id} confirmed complete with stable scores — finalizing`);
-
+            console.log("Match " + match.id + " confirmed complete — finalizing");
             if (!dryRun) {
-              await supabase
-                .from("players")
-                .update({ is_playing: null })
-                .eq("is_playing", true)
-                .in("team", [match.team_a, match.team_b]);
-
+              await supabase.from("players").update({ is_playing: null }).eq("is_playing", true).in("team", [match.team_a, match.team_b]);
               const completionUpdate: Record<string, any> = { status: "completed" };
               if (scorecard.winningTeam) completionUpdate.winning_team = scorecard.winningTeam;
               if (scorecard.teamAScore) completionUpdate.team_a_score = scorecard.teamAScore;
               if (scorecard.teamBScore) completionUpdate.team_b_score = scorecard.teamBScore;
               await supabase.from("matches").update(completionUpdate).eq("id", match.id);
             }
-            console.log(`${dryRun ? "[DRY RUN] Would mark" : "Marked"} match ${match.id} completed`);
           }
         }
 
         updated++;
       } catch (matchErr) {
-        console.error(`Error updating match ${match.id}:`, matchErr);
+        console.error("Error updating match " + match.id + ":", matchErr);
       }
     }
 
@@ -254,7 +231,113 @@ function jsonResponse(body: Record<string, any>, status = 200): Response {
   });
 }
 
-// ─── MOTM: String parser (NO regex — immune to bracket corruption) ──────────
+// ─── STEP 1: Scores page only (state + scores + winning team + MOTM) ────────
+
+async function fetchCricbuzzScores(
+  cricbuzzId: string,
+  match: any,
+  supabase: any
+): Promise<NormalizedScorecard | null> {
+  try {
+    const { data: html } = await supabase.rpc("http_get_text", {
+      target_url: "https://www.cricbuzz.com/live-cricket-scores/" + cricbuzzId
+    });
+    if (!html) return null;
+    console.log("Cricbuzz scores page: " + html.length + " chars");
+
+    const matchEnded = isScopedState(html, match.team_a, match.team_b, "Complete");
+
+    let teamAScore: string | null = null;
+    let teamBScore: string | null = null;
+
+    const teamScores = new Map<string, string>();
+    let im;
+    while ((im = inningsRegex.exec(html)) !== null) {
+      const team = im[2];
+      const score = im[3] + "/" + im[4] + " (" + im[5] + ")";
+      if (teamMatchesKeywords(match.team_a, team)) {
+        teamScores.set("a", score);
+      } else if (teamMatchesKeywords(match.team_b, team)) {
+        teamScores.set("b", score);
+      }
+    }
+    teamAScore = teamScores.get("a") || null;
+    teamBScore = teamScores.get("b") || null;
+
+    if (!teamAScore && !teamBScore) {
+      const titleRegex = /(\w+)\s+(\d+)\/(\d+)\s*\(([\d.]+)\)/g;
+      let tm;
+      while ((tm = titleRegex.exec(html)) !== null) {
+        const score = tm[2] + "/" + tm[3] + " (" + tm[4] + ")";
+        if (!teamAScore) teamAScore = score;
+        else if (!teamBScore && score !== teamAScore) { teamBScore = score; break; }
+      }
+    }
+
+    if (!teamAScore && !teamBScore) return null;
+
+    let winningTeam: string | null = null;
+    if (matchEnded) {
+      const statusRegex = /\\*"?status\\*"?\s*:\s*\\*"?([^"\\]{5,80})\\*"?/g;
+      let sm;
+      while ((sm = statusRegex.exec(html)) !== null) {
+        const result = extractWinningTeam(sm[1], match.team_a, match.team_b);
+        if (result) { winningTeam = result; break; }
+      }
+    }
+
+    const playerOfTheMatch = findMotmName(html);
+    if (playerOfTheMatch) console.log("Cricbuzz: MOTM = " + playerOfTheMatch);
+
+    console.log("Cricbuzz: " + teamAScore + " / " + teamBScore + ", ended=" + matchEnded + ", winner=" + winningTeam);
+    return { teamAScore, teamBScore, matchEnded, players: [], winningTeam, playerOfTheMatch };
+  } catch (err) {
+    console.log("Cricbuzz scores failed:", err);
+    return null;
+  }
+}
+
+// ─── STEP 2: Full scorecard page (player stats) ────────────────────────────
+
+async function fetchCricbuzzFullScorecard(
+  cricbuzzId: string,
+  match: any,
+  supabase: any,
+  baseScorecard: NormalizedScorecard
+): Promise<NormalizedScorecard | null> {
+  try {
+    const { data: scHtml } = await supabase.rpc("http_get_text", {
+      target_url: "https://www.cricbuzz.com/live-cricket-scorecard/" + cricbuzzId
+    });
+
+    if (!scHtml || scHtml.length < 1000) {
+      console.log("Cricbuzz: scorecard page too small or empty, trying miniscore");
+      // Fallback: re-fetch scores page for miniscore
+      const { data: html } = await supabase.rpc("http_get_text", {
+        target_url: "https://www.cricbuzz.com/live-cricket-scores/" + cricbuzzId
+      });
+      if (!html) return baseScorecard;
+
+      const players: PlayerStats[] = [];
+      parseMiniscorePlayers(html, players);
+      console.log("Cricbuzz: " + players.length + " players from miniscore fallback");
+      return { ...baseScorecard, players };
+    }
+
+    console.log("Cricbuzz: scorecard page " + scHtml.length + " chars");
+    const scorecardPlayers = parseScorecardPlayers(scHtml);
+    const players: PlayerStats[] = [];
+    for (const sp of scorecardPlayers) mergePlayer(players, sp);
+    console.log("Cricbuzz: " + scorecardPlayers.length + " raw, " + players.length + " merged players from scorecard");
+
+    return { ...baseScorecard, players };
+  } catch (err) {
+    console.log("Cricbuzz scorecard failed:", err);
+    return baseScorecard;
+  }
+}
+
+// ─── MOTM string parser (no regex, no bracket corruption) ───────────────────
 
 function findMotmName(html: string): string | null {
   const marker = "playersOfTheMatch";
@@ -262,13 +345,10 @@ function findMotmName(html: string): string | null {
   if (pos === -1) return null;
 
   const chunk = html.substring(pos, Math.min(html.length, pos + 2000));
-  
-  // Find ALL "name" occurrences and return the first one that isn't a team name
   let searchFrom = 0;
   while (searchFrom < chunk.length) {
     const namePos = chunk.indexOf("name", searchFrom);
     if (namePos === -1) break;
-
     const colonPos = chunk.indexOf(":", namePos + 4);
     if (colonPos === -1) break;
 
@@ -278,24 +358,16 @@ function findMotmName(html: string): string | null {
       if (ch !== " " && ch !== '"' && ch !== "\\" && ch !== "\n" && ch !== "\t") break;
       start++;
     }
-
     let end = start;
     while (end < chunk.length) {
       const ch = chunk.charAt(end);
       if (ch === '"' || ch === "\\" || ch === "," || ch === "}") break;
       end++;
     }
-
     const name = chunk.substring(start, end).trim();
-    
-    if (name.length > 2 && !isTeamName(name)) {
-      return name;
-    }
-
-    // This "name" was a team name — keep searching
+    if (name.length > 2 && !isTeamName(name)) return name;
     searchFrom = end;
   }
-
   return null;
 }
 
@@ -313,7 +385,8 @@ function isTeamName(name: string): boolean {
 function isScopedState(html: string, teamA: string, teamB: string, state: string): boolean {
   const slugA = teamA.split(" ")[0].toLowerCase();
   const slugB = teamB.split(" ")[0].toLowerCase();
-  const regex = new RegExp(state.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+  const safeState = state.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(safeState, "g");
   let m;
   while ((m = regex.exec(html)) !== null) {
     const start = Math.max(0, m.index - 500);
@@ -324,196 +397,7 @@ function isScopedState(html: string, teamA: string, teamB: string, state: string
   return false;
 }
 
-function buildPlayerIndex(dbPlayers: any[], aliasMap: Map<string, string>): PlayerIndex {
-  const byNormalized = new Map<string, any>();
-  for (const p of dbPlayers) {
-    byNormalized.set(normalizeName(p.name), p);
-  }
-  const byAlias = new Map<string, any>();
-  for (const [alias, playerId] of aliasMap) {
-    const player = dbPlayers.find(p => p.id === playerId);
-    if (player) byAlias.set(alias, player);
-  }
-  return { byNormalized, byAlias };
-}
-
-function findPlayer(index: PlayerIndex, name: string): any | null {
-  const norm = normalizeName(name);
-  const exact = index.byNormalized.get(norm);
-  if (exact) return exact;
-  for (const [key, p] of index.byNormalized) {
-    if (key.includes(norm) || norm.includes(key)) return p;
-  }
-  const aliased = index.byAlias.get(norm);
-  if (aliased) return aliased;
-  return null;
-}
-
-async function loadAliasMap(supabase: ReturnType<typeof createClient>): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  const { data } = await supabase.from("player_aliases").select("player_id, alias");
-  if (data) {
-    for (const row of data) {
-      map.set(normalizeName(row.alias), row.player_id);
-    }
-  }
-  return map;
-}
-
-// ─── MOTM Re-check (uses findMotmName, not regex) ──────────────────────────
-
-async function handleMotmRecheck(
-  supabase: ReturnType<typeof createClient>,
-  recentCompleted: any[],
-  dryRun: boolean
-) {
-  for (const rm of recentCompleted) {
-    if (!rm.cricbuzz_match_id) continue;
-
-    const { data: motmCheck } = await supabase
-      .from("match_player_points")
-      .select("id")
-      .eq("match_id", rm.id)
-      .gt("breakdown->motm_bonus", 0)
-      .limit(1);
-
-    if (motmCheck?.length) continue;
-
-    const { data: html } = await supabase.rpc("http_get_text", {
-      target_url: `https://www.cricbuzz.com/live-cricket-scores/${rm.cricbuzz_match_id}`
-    });
-
-    if (!html) continue;
-
-    const motmName = findMotmName(html);
-    if (!motmName) continue;
-
-    console.log(`MOTM re-check: ${motmName} for ${rm.team_a} vs ${rm.team_b}`);
-
-    const { data: matchPoints } = await supabase
-      .from("match_player_points")
-      .select("id, player_id, breakdown, points, players!inner(name)")
-      .eq("match_id", rm.id);
-
-    if (!matchPoints?.length) continue;
-
-    const motmNorm = normalizeName(motmName);
-    const target = matchPoints.find((mp: any) => {
-      const pNorm = normalizeName(mp.players.name);
-      return pNorm === motmNorm || pNorm.includes(motmNorm) || motmNorm.includes(pNorm);
-    });
-
-    if (!target || target.breakdown?.motm_bonus > 0) continue;
-
-    const newTotal = (target.breakdown?.total || 0) + 30;
-    const newBreakdown = { ...target.breakdown, motm_bonus: 30, total: newTotal };
-
-    if (!dryRun) {
-      await supabase
-        .from("match_player_points")
-        .update({ breakdown: newBreakdown, points: target.points + 30 })
-        .eq("id", target.id);
-      await recalcUserTeamPoints(supabase, rm.id, false);
-    }
-    console.log(`${dryRun ? "[DRY RUN] Would apply" : "Applied"} MOTM +30 to ${motmName}`);
-  }
-}
-
-async function fetchCricbuzzFull(
-  cricbuzzId: string,
-  match: any,
-  supabase: any
-): Promise<NormalizedScorecard | null> {
-  try {
-    const [scoresResult, scorecardResult] = await Promise.all([
-      supabase.rpc("http_get_text", {
-        target_url: `https://www.cricbuzz.com/live-cricket-scores/${cricbuzzId}`
-      }),
-      supabase.rpc("http_get_text", {
-        target_url: `https://www.cricbuzz.com/live-cricket-scorecard/${cricbuzzId}`
-      }),
-    ]);
-
-    const html = scoresResult.data;
-    const scHtml = scorecardResult.data;
-
-    if (!html) {
-      console.log(`Cricbuzz: no data for ${cricbuzzId}`);
-      return null;
-    }
-
-    console.log(`Cricbuzz: scores page ${html.length} chars, scorecard page ${scHtml?.length || 0} chars`);
-
-    const matchEnded = isScopedState(html, match.team_a, match.team_b, "Complete");
-
-    let teamAScore: string | null = null;
-    let teamBScore: string | null = null;
-
-    const inningsRegex = /\\?"inningsId\\?":\s*(\d+)\s*,\s*\\?"batTeamId\\?":\s*\d+\s*,\s*\\?"batTeamName\\?":\s*\\?"([^"\\]+)\\?"\s*,\s*\\?"score\\?":\s*(\d+)\s*,\s*\\?"wickets\\?":\s*(\d+)\s*,\s*\\?"overs\\?":\s*([\d.]+)/g;
-    const inningsByid = new Map<string, { team: string; score: string }>();
-    let im;
-    while ((im = inningsRegex.exec(html)) !== null) {
-      inningsByid.set(im[1], { team: im[2], score: `${im[3]}/${im[4]} (${im[5]})` });
-    }
-
-    for (const inn of inningsByid.values()) {
-      if (teamMatchesKeywords(match.team_a, inn.team)) {
-        teamAScore = teamAScore ? `${teamAScore} & ${inn.score}` : inn.score;
-      } else if (teamMatchesKeywords(match.team_b, inn.team)) {
-        teamBScore = teamBScore ? `${teamBScore} & ${inn.score}` : inn.score;
-      } else {
-        console.log(`Cricbuzz: innings team "${inn.team}" didn't match either team — skipping`);
-      }
-    }
-
-    if (!teamAScore && !teamBScore) {
-      const titleRegex = /(\w+)\s+(\d+)\/(\d+)\s*\(([\d.]+)\)/g;
-      let tm;
-      while ((tm = titleRegex.exec(html)) !== null) {
-        const score = `${tm[2]}/${tm[3]} (${tm[4]})`;
-        if (!teamAScore) teamAScore = score;
-        else if (!teamBScore && score !== teamAScore) { teamBScore = score; break; }
-      }
-    }
-
-    if (!teamAScore && !teamBScore) {
-      console.log(`Cricbuzz: no scores found for ${cricbuzzId}`);
-      return null;
-    }
-
-    const players: PlayerStats[] = [];
-    if (scHtml && scHtml.length > 1000) {
-      const scorecardPlayers = parseScorecardPlayers(scHtml);
-      for (const sp of scorecardPlayers) mergePlayer(players, sp);
-      console.log(`Cricbuzz: ${scorecardPlayers.length} players from scorecard`);
-    } else {
-      parseMiniscorePlayers(html, players);
-      console.log(`Cricbuzz: ${players.length} players from miniscore fallback`);
-    }
-
-    let winningTeam: string | null = null;
-    if (matchEnded) {
-      const statusRegex = /\\*"?status\\*"?\s*:\s*\\*"?([^"\\]{5,80})\\*"?/g;
-      let sm;
-      while ((sm = statusRegex.exec(html)) !== null) {
-        const result = extractWinningTeam(sm[1], match.team_a, match.team_b);
-        if (result) { winningTeam = result; break; }
-      }
-    }
-
-    // ── MOTM: uses findMotmName string parser (no regex) ──
-    const playerOfTheMatch = findMotmName(html);
-    if (playerOfTheMatch) {
-      console.log(`Cricbuzz: MOTM = ${playerOfTheMatch}`);
-    }
-
-    console.log(`Cricbuzz: ${teamAScore} / ${teamBScore}, ${players.length} players, ended=${matchEnded}, winner=${winningTeam}`);
-    return { teamAScore, teamBScore, matchEnded, players, winningTeam, playerOfTheMatch };
-  } catch (err) {
-    console.log(`Cricbuzz failed for ${match.id}:`, err);
-    return null;
-  }
-}
+// ─── Scorecard parser ───────────────────────────────────────────────────────
 
 function parseScorecardPlayers(html: string): PlayerStats[] {
   const players: PlayerStats[] = [];
@@ -526,7 +410,7 @@ function parseScorecardPlayers(html: string): PlayerStats[] {
 
     const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const outDescRegex = new RegExp(
-      `\\\\?"batName\\\\?":\\s*\\\\?"${escapedName}\\\\?"[^}]*?\\\\?"outDesc\\\\?":\\s*\\\\?"([^"\\\\]*?)\\\\?"`,
+      '\\\\?"batName\\\\?":\\s*\\\\?"' + escapedName + '\\\\?"[^}]*?\\\\?"outDesc\\\\?":\\s*\\\\?"([^"\\\\]*?)\\\\?"',
       "g"
     );
     const outMatch = outDescRegex.exec(html);
@@ -570,11 +454,8 @@ function parseMiniscorePlayers(html: string, players: PlayerStats[]) {
   while ((bm = batRegex.exec(html)) !== null) {
     if (bm[1] && bm[1] !== "undefined") {
       mergePlayer(players, {
-        name: bm[1],
-        runs: parseInt(bm[2]) || 0,
-        balls: parseInt(bm[3]) || 0,
-        fours: parseInt(bm[4]) || 0,
-        sixes: parseInt(bm[5]) || 0,
+        name: bm[1], runs: parseInt(bm[2]) || 0, balls: parseInt(bm[3]) || 0,
+        fours: parseInt(bm[4]) || 0, sixes: parseInt(bm[5]) || 0,
       });
     }
   }
@@ -584,11 +465,8 @@ function parseMiniscorePlayers(html: string, players: PlayerStats[]) {
   while ((bwm = bowlRegex.exec(html)) !== null) {
     if (bwm[1] && bwm[1] !== "undefined") {
       mergePlayer(players, {
-        name: bwm[1],
-        oversBowled: parseFloat(bwm[2]) || 0,
-        maidens: parseInt(bwm[3]) || 0,
-        runsConceded: parseInt(bwm[4]) || 0,
-        wickets: parseInt(bwm[5]) || 0,
+        name: bwm[1], oversBowled: parseFloat(bwm[2]) || 0, maidens: parseInt(bwm[3]) || 0,
+        runsConceded: parseInt(bwm[4]) || 0, wickets: parseInt(bwm[5]) || 0,
       });
     }
   }
@@ -644,43 +522,63 @@ function extractWinningTeam(statusText: string | undefined | null, teamA: string
   if (!statusText) return null;
   const s = statusText.toLowerCase();
   if (!s.includes("won") && !s.includes("beat")) return null;
-
   const winIdx = Math.max(s.indexOf("won"), s.indexOf("beat"));
   const tA = teamA.toLowerCase();
   const tB = teamB.toLowerCase();
-
   if (s.includes(tA) && s.indexOf(tA) < winIdx) return teamA;
   if (s.includes(tB) && s.indexOf(tB) < winIdx) return teamB;
-
   for (const word of tA.split(/\s+/)) {
     if (word.length >= 4 && s.includes(word) && s.indexOf(word) < winIdx) return teamA;
   }
   for (const word of tB.split(/\s+/)) {
     if (word.length >= 4 && s.includes(word) && s.indexOf(word) < winIdx) return teamB;
   }
-
   for (const [key, keywords] of Object.entries(PSL_TEAM_KEYWORDS)) {
     if (tA.includes(key.toLowerCase()) && keywords.some(kw => s.includes(kw) && s.indexOf(kw) < winIdx)) return teamA;
     if (tB.includes(key.toLowerCase()) && keywords.some(kw => s.includes(kw) && s.indexOf(kw) < winIdx)) return teamB;
   }
-
   return null;
 }
+
+// ─── Compute player points (old pattern: fresh dbPlayers query each time) ───
 
 async function computePlayerPoints(
   supabase: ReturnType<typeof createClient>,
   scorecard: NormalizedScorecard,
   matchId: string,
-  playerIndex: PlayerIndex,
-  dbPlayers: any[],
+  aliasMap: Map<string, string>,
   dryRun: boolean
 ) {
-  const upserts: any[] = [];
-  const affectedPlayerIds: string[] = [];
+  const { data: dbPlayers } = await supabase
+    .from("players")
+    .select("id, name, team, external_id");
+
+  if (!dbPlayers?.length) return;
+
+  let matched = 0;
+  const unmatched: string[] = [];
 
   for (const ps of scorecard.players) {
-    const dbPlayer = findPlayer(playerIndex, ps.name);
-    if (!dbPlayer) continue;
+    const normalizedPs = normalizeName(ps.name);
+    let dbPlayer = dbPlayers.find(
+      (dp: any) => normalizeName(dp.name) === normalizedPs
+    ) || dbPlayers.find(
+      (dp: any) => normalizeName(dp.name).includes(normalizedPs) ||
+                   normalizedPs.includes(normalizeName(dp.name))
+    );
+
+    if (!dbPlayer) {
+      const aliasPlayerId = aliasMap.get(normalizedPs);
+      if (aliasPlayerId) {
+        dbPlayer = dbPlayers.find((dp: any) => dp.id === aliasPlayerId);
+      }
+    }
+
+    if (!dbPlayer) {
+      unmatched.push(ps.name);
+      continue;
+    }
+    matched++;
 
     const bd = calculatePointsWithBreakdown(ps);
     let winBonus = 0;
@@ -696,57 +594,32 @@ async function computePlayerPoints(
 
     if (scorecard.playerOfTheMatch) {
       const motmNorm = normalizeName(scorecard.playerOfTheMatch);
-      const psNorm = normalizeName(ps.name);
-      if (psNorm === motmNorm || psNorm.includes(motmNorm) || motmNorm.includes(psNorm)) {
+      if (normalizedPs === motmNorm || normalizedPs.includes(motmNorm) || motmNorm.includes(normalizedPs)) {
         motmBonus = 30;
-        console.log(`MOTM bonus +30 -> ${ps.name}`);
+        console.log("MOTM bonus +30 -> " + ps.name);
       }
     }
 
     const totalPoints = bd.total + winBonus + motmBonus;
     const breakdown = { ...bd, winning_bonus: winBonus, motm_bonus: motmBonus, total: totalPoints };
 
-    upserts.push({
-      match_id: matchId,
-      player_id: dbPlayer.id,
-      points: totalPoints,
-      data_source: "cricbuzz",
-      breakdown,
-    });
+    if (!dryRun) {
+      await supabase.from("match_player_points").upsert(
+        { match_id: matchId, player_id: dbPlayer.id, points: totalPoints, data_source: "cricbuzz", breakdown },
+        { onConflict: "match_id,player_id" }
+      );
 
-    affectedPlayerIds.push(dbPlayer.id);
-  }
-
-  if (dryRun) {
-    console.log(`[DRY RUN] Would upsert ${upserts.length} player points`);
-    if (upserts.length > 0) console.log(`[DRY RUN] Sample:`, JSON.stringify(upserts[0], null, 2));
-    return;
-  }
-
-  if (upserts.length > 0) {
-    await supabase
-      .from("match_player_points")
-      .upsert(upserts, { onConflict: "match_id,player_id" });
-  }
-
-  if (affectedPlayerIds.length > 0) {
-    const { data: allPoints } = await supabase
-      .from("match_player_points")
-      .select("player_id, points")
-      .in("player_id", affectedPlayerIds);
-
-    const globalTotals = new Map<string, number>();
-    for (const row of allPoints || []) {
-      globalTotals.set(row.player_id, (globalTotals.get(row.player_id) || 0) + (row.points || 0));
-    }
-
-    for (const pid of affectedPlayerIds) {
-      await supabase
-        .from("players")
-        .update({ points: globalTotals.get(pid) || 0, is_playing: true })
-        .eq("id", pid);
+      const { data: allMatchPoints } = await supabase
+        .from("match_player_points")
+        .select("points")
+        .eq("player_id", dbPlayer.id);
+      const totalGlobal = (allMatchPoints || []).reduce((sum: number, row: any) => sum + (row.points || 0), 0);
+      await supabase.from("players").update({ points: totalGlobal, is_playing: true }).eq("id", dbPlayer.id);
     }
   }
+
+  console.log("Points: " + matched + " matched, " + unmatched.length + " unmatched");
+  if (unmatched.length > 0) console.log("Unmatched: " + unmatched.join(", "));
 }
 
 function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
@@ -762,7 +635,6 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
 
   if (runs > 0 || ps.out !== undefined) {
     bd.batting += runs + fours * 4 + sixes * 6;
-
     if (balls >= 10) {
       const sr = (runs / Math.max(balls, 1)) * 100;
       if (sr > 170) bd.sr_bonus = 6;
@@ -772,11 +644,9 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
       else if (sr < 60) bd.sr_bonus = -4;
       else if (sr < 70) bd.sr_bonus = -2;
     }
-
     if (runs >= 25) bd.milestone += 8;
     if (runs >= 50) bd.milestone += 8;
     if (runs >= 100) bd.milestone += 16;
-
     if (runs === 0 && ps.out) bd.batting -= 2;
   }
 
@@ -786,11 +656,9 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
 
   if (wickets > 0 || overs > 0) {
     bd.bowling += wickets * 30 + (ps.maidens || 0) * 12;
-
     if (wickets >= 3) bd.milestone += 4;
     if (wickets >= 4) bd.milestone += 8;
     if (wickets >= 5) bd.milestone += 16;
-
     if (overs >= 2) {
       const economy = runsConceded / overs;
       if (economy < 5) bd.er_bonus = 6;
@@ -811,6 +679,8 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
   return bd;
 }
 
+// ─── User team recalc (old pattern: per-team queries, proven to work) ───────
+
 async function recalcUserTeamPoints(
   supabase: ReturnType<typeof createClient>,
   matchId: string,
@@ -824,67 +694,134 @@ async function recalcUserTeamPoints(
 
     if (!userTeams?.length) return;
 
-    const utIds = userTeams.map(ut => ut.id);
-    const { data: allTeamPlayers } = await supabase
-      .from("team_players")
-      .select("user_team_id, player_id")
-      .in("user_team_id", utIds);
-
-    if (!allTeamPlayers?.length) return;
-
-    const { data: allMatchPoints } = await supabase
-      .from("match_player_points")
-      .select("player_id, points")
-      .eq("match_id", matchId);
-
-    const pointsMap = new Map((allMatchPoints || []).map(mp => [mp.player_id, mp.points]));
-
-    const teamPlayersMap = new Map<string, any[]>();
-    for (const tp of allTeamPlayers) {
-      if (!teamPlayersMap.has(tp.user_team_id)) teamPlayersMap.set(tp.user_team_id, []);
-      teamPlayersMap.get(tp.user_team_id)!.push(tp);
-    }
-
-    const teamUpdates: { id: string; total_points: number }[] = [];
     for (const ut of userTeams) {
-      const tps = teamPlayersMap.get(ut.id) || [];
+      const { data: teamPlayers } = await supabase
+        .from("team_players")
+        .select("player_id")
+        .eq("user_team_id", ut.id);
+
+      if (!teamPlayers?.length) continue;
+
+      const playerIds = teamPlayers.map((tp: any) => tp.player_id);
+
+      const { data: matchPoints } = await supabase
+        .from("match_player_points")
+        .select("player_id, points")
+        .eq("match_id", matchId)
+        .in("player_id", playerIds);
+
+      const pointsMap = new Map((matchPoints || []).map((mp: any) => [mp.player_id, mp.points]));
+
       let total = 0;
-      for (const tp of tps) {
+      for (const tp of teamPlayers) {
         const pts = pointsMap.get(tp.player_id) || 0;
         if (tp.player_id === ut.captain_id) total += pts * 2;
         else if (tp.player_id === ut.vice_captain_id) total += pts * 1.5;
         else total += pts;
       }
-      teamUpdates.push({ id: ut.id, total_points: parseFloat(total.toFixed(1)) });
+
+      const finalTotal = parseFloat(total.toFixed(1));
+      console.log("Team " + ut.id + " (" + teamPlayers.length + " players): " + finalTotal + " pts");
+
+      if (!dryRun) {
+        await supabase.from("user_teams").update({ total_points: finalTotal }).eq("id", ut.id);
+      }
     }
 
-    if (dryRun) {
-      console.log(`[DRY RUN] Would update ${teamUpdates.length} user teams`);
-      for (const tu of teamUpdates) console.log(`[DRY RUN]   ${tu.id}: ${tu.total_points} pts`);
-      return;
+    // Profile totals
+    const userIds = [...new Set(userTeams.map((ut: any) => ut.user_id))];
+    for (const userId of userIds) {
+      const { data: allTeams } = await supabase
+        .from("user_teams")
+        .select("total_points")
+        .eq("user_id", userId);
+      const totalProfile = (allTeams || []).reduce((s: number, t: any) => s + (t.total_points || 0), 0);
+      if (!dryRun) {
+        await supabase.from("profiles").update({ total_points: totalProfile }).eq("user_id", userId);
+      }
     }
 
-    for (const tu of teamUpdates) {
-      await supabase.from("user_teams").update({ total_points: tu.total_points }).eq("id", tu.id);
-    }
-
-    const userIds = [...new Set(userTeams.map(ut => ut.user_id))];
-    const { data: allUserTeams } = await supabase
-      .from("user_teams")
-      .select("user_id, total_points")
-      .in("user_id", userIds);
-
-    const profileTotals = new Map<string, number>();
-    for (const ut of allUserTeams || []) {
-      profileTotals.set(ut.user_id, (profileTotals.get(ut.user_id) || 0) + (ut.total_points || 0));
-    }
-
-    for (const [userId, total] of profileTotals) {
-      await supabase.from("profiles").update({ total_points: total }).eq("user_id", userId);
-    }
+    console.log("Recalc complete: " + userTeams.length + " teams, " + userIds.length + " profiles");
   } catch (err) {
     console.error("Error recalculating user team points:", matchId, err);
   }
+}
+
+// ─── MOTM re-check ─────────────────────────────────────────────────────────
+
+async function handleMotmRecheck(
+  supabase: ReturnType<typeof createClient>,
+  recentCompleted: any[],
+  dryRun: boolean
+) {
+  for (const rm of recentCompleted) {
+    if (!rm.cricbuzz_match_id) continue;
+
+    const { data: motmCheck } = await supabase
+      .from("match_player_points")
+      .select("id")
+      .eq("match_id", rm.id)
+      .gt("breakdown->motm_bonus", 0)
+      .limit(1);
+
+    if (motmCheck?.length) continue;
+
+    const { data: html } = await supabase.rpc("http_get_text", {
+      target_url: "https://www.cricbuzz.com/live-cricket-scores/" + rm.cricbuzz_match_id
+    });
+    if (!html) continue;
+
+    const motmName = findMotmName(html);
+    if (!motmName) continue;
+
+    console.log("MOTM re-check: " + motmName + " for " + rm.team_a + " vs " + rm.team_b);
+
+    const { data: dbPlayers } = await supabase.from("players").select("id, name");
+    const motmNorm = normalizeName(motmName);
+    const motmPlayer = dbPlayers?.find(
+      (p: any) => normalizeName(p.name) === motmNorm ||
+        normalizeName(p.name).includes(motmNorm) ||
+        motmNorm.includes(normalizeName(p.name))
+    );
+
+    if (!motmPlayer) continue;
+
+    const { data: existing } = await supabase
+      .from("match_player_points")
+      .select("id, breakdown, points")
+      .eq("match_id", rm.id)
+      .eq("player_id", motmPlayer.id)
+      .single();
+
+    if (!existing || existing.breakdown?.motm_bonus > 0) continue;
+
+    const newTotal = (existing.breakdown?.total || 0) + 30;
+    const newBreakdown = { ...existing.breakdown, motm_bonus: 30, total: newTotal };
+
+    if (!dryRun) {
+      await supabase
+        .from("match_player_points")
+        .update({ breakdown: newBreakdown, points: existing.points + 30 })
+        .eq("id", existing.id);
+
+      const aliasMap = await loadAliasMap(supabase);
+      await recalcUserTeamPoints(supabase, rm.id, false);
+    }
+    console.log((dryRun ? "[DRY RUN] Would apply" : "Applied") + " MOTM +30 to " + motmName);
+  }
+}
+
+// ─── Utilities ──────────────────────────────────────────────────────────────
+
+async function loadAliasMap(supabase: ReturnType<typeof createClient>): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const { data } = await supabase.from("player_aliases").select("player_id, alias");
+  if (data) {
+    for (const row of data) {
+      map.set(normalizeName(row.alias), row.player_id);
+    }
+  }
+  return map;
 }
 
 function teamMatchesKeywords(teamName: string, target: string): boolean {
