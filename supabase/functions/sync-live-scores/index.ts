@@ -169,6 +169,20 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        // Read current scores BEFORE updating (needed for stable-score completion check)
+        let storedA = "";
+        let storedB = "";
+        if (scorecard.matchEnded) {
+          const { data: currentMatch } = await supabase
+            .from("matches")
+            .select("team_a_score, team_b_score")
+            .eq("id", match.id)
+            .single();
+          storedA = currentMatch?.team_a_score || "";
+          storedB = currentMatch?.team_b_score || "";
+        }
+
+        // Now update scores
         const scoreUpdate: Record<string, string> = {};
         if (scorecard.teamAScore) scoreUpdate.team_a_score = scorecard.teamAScore;
         if (scorecard.teamBScore) scoreUpdate.team_b_score = scorecard.teamBScore;
@@ -186,14 +200,6 @@ Deno.serve(async (req) => {
         }
 
         if (scorecard.matchEnded) {
-          const { data: currentMatch } = await supabase
-            .from("matches")
-            .select("team_a_score, team_b_score")
-            .eq("id", match.id)
-            .single();
-
-          const storedA = currentMatch?.team_a_score || "";
-          const storedB = currentMatch?.team_b_score || "";
           const newA = scorecard.teamAScore || "";
           const newB = scorecard.teamBScore || "";
           const scoresStable = storedA === newA && storedB === newB && storedA !== "";
