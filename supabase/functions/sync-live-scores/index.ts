@@ -6,6 +6,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
 interface PlayerStats {
   name: string;
   runs?: number;
@@ -59,6 +61,8 @@ const PSL_TEAM_KEYWORDS: Record<string, string[]> = {
   "Hyderabad": ["hyderabad", "kingsmen", "hydk", "hyd", "king"],
 };
 
+// ─── Main Handler ───────────────────────────────────────────────────────────
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -102,13 +106,13 @@ Deno.serve(async (req) => {
         .filter(pm => pm.cricbuzz_match_id)
         .map(async (pm) => {
           const { data: html } = await supabase.rpc("http_get_text", {
-            target_url: "https://www.cricbuzz.com/live-cricket-scores/" + pm.cricbuzz_match_id
+            target_url: `https://www.cricbuzz.com/live-cricket-scores/${pm.cricbuzz_match_id}`
           });
           if (html && isScopedState(html, pm.team_a, pm.team_b, "In Progress")) {
             if (!dryRun) {
               await supabase.from("matches").update({ status: "live" }).eq("id", pm.id);
             }
-            console.log((dryRun ? "[DRY RUN] Would transition " : "Transitioned ") + pm.team_a + " vs " + pm.team_b + " to live");
+            console.log(`${dryRun ? "[DRY RUN] Would transition" : "Transitioned"} ${pm.team_a} vs ${pm.team_b} to live`);
             liveMatches?.push({ ...pm, status: "live" });
           }
         });
@@ -124,10 +128,10 @@ Deno.serve(async (req) => {
         .filter(rm => rm.cricbuzz_match_id)
         .map(async (rm) => {
           const { data: html } = await supabase.rpc("http_get_text", {
-            target_url: "https://www.cricbuzz.com/live-cricket-scores/" + rm.cricbuzz_match_id
+            target_url: `https://www.cricbuzz.com/live-cricket-scores/${rm.cricbuzz_match_id}`
           });
           if (html && isScopedState(html, rm.team_a, rm.team_b, "In Progress")) {
-            console.warn("INTEGRITY: Match " + rm.id + " (" + rm.team_a + " vs " + rm.team_b + ") marked completed but Cricbuzz says In Progress — reverting to live");
+            console.warn(`INTEGRITY: Match ${rm.id} (${rm.team_a} vs ${rm.team_b}) marked completed but Cricbuzz says In Progress — reverting to live`);
             if (!dryRun) {
               await supabase
                 .from("matches")
@@ -159,13 +163,13 @@ Deno.serve(async (req) => {
     for (const match of liveMatches) {
       try {
         if (!match.cricbuzz_match_id) {
-          console.log("Match " + match.id + " has no cricbuzz_match_id — skipping");
+          console.log(`Match ${match.id} has no cricbuzz_match_id — skipping`);
           continue;
         }
 
         const scorecard = await fetchCricbuzzFull(match.cricbuzz_match_id, match, supabase);
         if (!scorecard) {
-          console.log("No scorecard data for match " + match.id);
+          console.log(`No scorecard data for match ${match.id}`);
           continue;
         }
 
@@ -182,7 +186,6 @@ Deno.serve(async (req) => {
           storedB = currentMatch?.team_b_score || "";
         }
 
-        // Now update scores
         const scoreUpdate: Record<string, string> = {};
         if (scorecard.teamAScore) scoreUpdate.team_a_score = scorecard.teamAScore;
         if (scorecard.teamBScore) scoreUpdate.team_b_score = scorecard.teamBScore;
@@ -191,7 +194,7 @@ Deno.serve(async (req) => {
           if (!dryRun) {
             await supabase.from("matches").update(scoreUpdate).eq("id", match.id);
           }
-          console.log((dryRun ? "[DRY RUN] " : "") + "Scores: " + scorecard.teamAScore + " / " + scorecard.teamBScore);
+          console.log(`${dryRun ? "[DRY RUN] " : ""}Scores: ${scorecard.teamAScore} / ${scorecard.teamBScore}`);
         }
 
         if (scorecard.players.length > 0) {
@@ -199,15 +202,16 @@ Deno.serve(async (req) => {
           await recalcUserTeamPoints(supabase, match.id, dryRun);
         }
 
+        // ── Delayed completion (stable scores across two ticks) ──
         if (scorecard.matchEnded) {
           const newA = scorecard.teamAScore || "";
           const newB = scorecard.teamBScore || "";
           const scoresStable = storedA === newA && storedB === newB && storedA !== "";
 
           if (!scoresStable) {
-            console.log("Match " + match.id + " completion detected but scores not yet stable (" + storedA + " -> " + newA + ", " + storedB + " -> " + newB + ") — keeping live for one more tick");
+            console.log(`Match ${match.id} completion detected but scores not yet stable (${storedA} -> ${newA}, ${storedB} -> ${newB}) — keeping live for one more tick`);
           } else {
-            console.log("Match " + match.id + " confirmed complete with stable scores — finalizing");
+            console.log(`Match ${match.id} confirmed complete with stable scores — finalizing`);
 
             if (!dryRun) {
               await supabase
@@ -222,13 +226,13 @@ Deno.serve(async (req) => {
               if (scorecard.teamBScore) completionUpdate.team_b_score = scorecard.teamBScore;
               await supabase.from("matches").update(completionUpdate).eq("id", match.id);
             }
-            console.log((dryRun ? "[DRY RUN] Would mark" : "Marked") + " match " + match.id + " completed");
+            console.log(`${dryRun ? "[DRY RUN] Would mark" : "Marked"} match ${match.id} completed`);
           }
         }
 
         updated++;
       } catch (matchErr) {
-        console.error("Error updating match " + match.id + ":", matchErr);
+        console.error(`Error updating match ${match.id}:`, matchErr);
       }
     }
 
@@ -250,41 +254,66 @@ function jsonResponse(body: Record<string, any>, status = 200): Response {
   });
 }
 
+// ─── MOTM: String parser (NO regex — immune to bracket corruption) ──────────
+
 function findMotmName(html: string): string | null {
   const marker = "playersOfTheMatch";
   const pos = html.indexOf(marker);
   if (pos === -1) return null;
 
-  const chunk = html.substring(pos, Math.min(html.length, pos + 500));
-  const namePos = chunk.indexOf("name");
-  if (namePos === -1) return null;
+  const chunk = html.substring(pos, Math.min(html.length, pos + 2000));
+  
+  // Find ALL "name" occurrences and return the first one that isn't a team name
+  let searchFrom = 0;
+  while (searchFrom < chunk.length) {
+    const namePos = chunk.indexOf("name", searchFrom);
+    if (namePos === -1) break;
 
-  const colonPos = chunk.indexOf(":", namePos + 4);
-  if (colonPos === -1) return null;
+    const colonPos = chunk.indexOf(":", namePos + 4);
+    if (colonPos === -1) break;
 
-  let start = colonPos + 1;
-  while (start < chunk.length) {
-    const ch = chunk.charAt(start);
-    if (ch !== " " && ch !== '"' && ch !== "\\" && ch !== "\n" && ch !== "\t") break;
-    start++;
+    let start = colonPos + 1;
+    while (start < chunk.length) {
+      const ch = chunk.charAt(start);
+      if (ch !== " " && ch !== '"' && ch !== "\\" && ch !== "\n" && ch !== "\t") break;
+      start++;
+    }
+
+    let end = start;
+    while (end < chunk.length) {
+      const ch = chunk.charAt(end);
+      if (ch === '"' || ch === "\\" || ch === "," || ch === "}") break;
+      end++;
+    }
+
+    const name = chunk.substring(start, end).trim();
+    
+    if (name.length > 2 && !isTeamName(name)) {
+      return name;
+    }
+
+    // This "name" was a team name — keep searching
+    searchFrom = end;
   }
 
-  let end = start;
-  while (end < chunk.length) {
-    const ch = chunk.charAt(end);
-    if (ch === '"' || ch === "\\" || ch === "," || ch === "}") break;
-    end++;
-  }
+  return null;
+}
 
-  const name = chunk.substring(start, end).trim();
-  return name.length > 2 ? name : null;
+function isTeamName(name: string): boolean {
+  const lower = name.toLowerCase();
+  for (const [key, keywords] of Object.entries(PSL_TEAM_KEYWORDS)) {
+    if (lower.includes(key.toLowerCase())) return true;
+    for (const kw of keywords) {
+      if (lower.includes(kw) && lower.length < 25) return true;
+    }
+  }
+  return false;
 }
 
 function isScopedState(html: string, teamA: string, teamB: string, state: string): boolean {
   const slugA = teamA.split(" ")[0].toLowerCase();
   const slugB = teamB.split(" ")[0].toLowerCase();
-  const safeState = state.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(safeState, "g");
+  const regex = new RegExp(state.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
   let m;
   while ((m = regex.exec(html)) !== null) {
     const start = Math.max(0, m.index - 500);
@@ -331,6 +360,8 @@ async function loadAliasMap(supabase: ReturnType<typeof createClient>): Promise<
   return map;
 }
 
+// ─── MOTM Re-check (uses findMotmName, not regex) ──────────────────────────
+
 async function handleMotmRecheck(
   supabase: ReturnType<typeof createClient>,
   recentCompleted: any[],
@@ -349,7 +380,7 @@ async function handleMotmRecheck(
     if (motmCheck?.length) continue;
 
     const { data: html } = await supabase.rpc("http_get_text", {
-      target_url: "https://www.cricbuzz.com/live-cricket-scores/" + rm.cricbuzz_match_id
+      target_url: `https://www.cricbuzz.com/live-cricket-scores/${rm.cricbuzz_match_id}`
     });
 
     if (!html) continue;
@@ -357,7 +388,7 @@ async function handleMotmRecheck(
     const motmName = findMotmName(html);
     if (!motmName) continue;
 
-    console.log("MOTM re-check: " + motmName + " for " + rm.team_a + " vs " + rm.team_b);
+    console.log(`MOTM re-check: ${motmName} for ${rm.team_a} vs ${rm.team_b}`);
 
     const { data: matchPoints } = await supabase
       .from("match_player_points")
@@ -384,7 +415,7 @@ async function handleMotmRecheck(
         .eq("id", target.id);
       await recalcUserTeamPoints(supabase, rm.id, false);
     }
-    console.log((dryRun ? "[DRY RUN] Would apply" : "Applied") + " MOTM +30 to " + motmName);
+    console.log(`${dryRun ? "[DRY RUN] Would apply" : "Applied"} MOTM +30 to ${motmName}`);
   }
 }
 
@@ -396,10 +427,10 @@ async function fetchCricbuzzFull(
   try {
     const [scoresResult, scorecardResult] = await Promise.all([
       supabase.rpc("http_get_text", {
-        target_url: "https://www.cricbuzz.com/live-cricket-scores/" + cricbuzzId
+        target_url: `https://www.cricbuzz.com/live-cricket-scores/${cricbuzzId}`
       }),
       supabase.rpc("http_get_text", {
-        target_url: "https://www.cricbuzz.com/live-cricket-scorecard/" + cricbuzzId
+        target_url: `https://www.cricbuzz.com/live-cricket-scorecard/${cricbuzzId}`
       }),
     ]);
 
@@ -407,11 +438,11 @@ async function fetchCricbuzzFull(
     const scHtml = scorecardResult.data;
 
     if (!html) {
-      console.log("Cricbuzz: no data for " + cricbuzzId);
+      console.log(`Cricbuzz: no data for ${cricbuzzId}`);
       return null;
     }
 
-    console.log("Cricbuzz: scores page " + html.length + " chars, scorecard page " + (scHtml?.length || 0) + " chars");
+    console.log(`Cricbuzz: scores page ${html.length} chars, scorecard page ${scHtml?.length || 0} chars`);
 
     const matchEnded = isScopedState(html, match.team_a, match.team_b, "Complete");
 
@@ -422,16 +453,16 @@ async function fetchCricbuzzFull(
     const inningsByid = new Map<string, { team: string; score: string }>();
     let im;
     while ((im = inningsRegex.exec(html)) !== null) {
-      inningsByid.set(im[1], { team: im[2], score: im[3] + "/" + im[4] + " (" + im[5] + ")" });
+      inningsByid.set(im[1], { team: im[2], score: `${im[3]}/${im[4]} (${im[5]})` });
     }
 
     for (const inn of inningsByid.values()) {
       if (teamMatchesKeywords(match.team_a, inn.team)) {
-        teamAScore = teamAScore ? teamAScore + " & " + inn.score : inn.score;
+        teamAScore = teamAScore ? `${teamAScore} & ${inn.score}` : inn.score;
       } else if (teamMatchesKeywords(match.team_b, inn.team)) {
-        teamBScore = teamBScore ? teamBScore + " & " + inn.score : inn.score;
+        teamBScore = teamBScore ? `${teamBScore} & ${inn.score}` : inn.score;
       } else {
-        console.log("Cricbuzz: innings team " + inn.team + " didn't match either team — skipping");
+        console.log(`Cricbuzz: innings team "${inn.team}" didn't match either team — skipping`);
       }
     }
 
@@ -439,14 +470,14 @@ async function fetchCricbuzzFull(
       const titleRegex = /(\w+)\s+(\d+)\/(\d+)\s*\(([\d.]+)\)/g;
       let tm;
       while ((tm = titleRegex.exec(html)) !== null) {
-        const score = tm[2] + "/" + tm[3] + " (" + tm[4] + ")";
+        const score = `${tm[2]}/${tm[3]} (${tm[4]})`;
         if (!teamAScore) teamAScore = score;
         else if (!teamBScore && score !== teamAScore) { teamBScore = score; break; }
       }
     }
 
     if (!teamAScore && !teamBScore) {
-      console.log("Cricbuzz: no scores found for " + cricbuzzId);
+      console.log(`Cricbuzz: no scores found for ${cricbuzzId}`);
       return null;
     }
 
@@ -454,10 +485,10 @@ async function fetchCricbuzzFull(
     if (scHtml && scHtml.length > 1000) {
       const scorecardPlayers = parseScorecardPlayers(scHtml);
       for (const sp of scorecardPlayers) mergePlayer(players, sp);
-      console.log("Cricbuzz: " + scorecardPlayers.length + " players from scorecard");
+      console.log(`Cricbuzz: ${scorecardPlayers.length} players from scorecard`);
     } else {
       parseMiniscorePlayers(html, players);
-      console.log("Cricbuzz: " + players.length + " players from miniscore fallback");
+      console.log(`Cricbuzz: ${players.length} players from miniscore fallback`);
     }
 
     let winningTeam: string | null = null;
@@ -470,15 +501,16 @@ async function fetchCricbuzzFull(
       }
     }
 
+    // ── MOTM: uses findMotmName string parser (no regex) ──
     const playerOfTheMatch = findMotmName(html);
     if (playerOfTheMatch) {
-      console.log("Cricbuzz: MOTM = " + playerOfTheMatch);
+      console.log(`Cricbuzz: MOTM = ${playerOfTheMatch}`);
     }
 
-    console.log("Cricbuzz: " + teamAScore + " / " + teamBScore + ", " + players.length + " players, ended=" + matchEnded + ", winner=" + winningTeam);
+    console.log(`Cricbuzz: ${teamAScore} / ${teamBScore}, ${players.length} players, ended=${matchEnded}, winner=${winningTeam}`);
     return { teamAScore, teamBScore, matchEnded, players, winningTeam, playerOfTheMatch };
   } catch (err) {
-    console.log("Cricbuzz failed for " + match.id + ":", err);
+    console.log(`Cricbuzz failed for ${match.id}:`, err);
     return null;
   }
 }
@@ -494,7 +526,7 @@ function parseScorecardPlayers(html: string): PlayerStats[] {
 
     const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const outDescRegex = new RegExp(
-      '\\\\?"batName\\\\?":\\s*\\\\?"' + escapedName + '\\\\?"[^}]*?\\\\?"outDesc\\\\?":\\s*\\\\?"([^"\\\\]*?)\\\\?"',
+      `\\\\?"batName\\\\?":\\s*\\\\?"${escapedName}\\\\?"[^}]*?\\\\?"outDesc\\\\?":\\s*\\\\?"([^"\\\\]*?)\\\\?"`,
       "g"
     );
     const outMatch = outDescRegex.exec(html);
@@ -667,7 +699,7 @@ async function computePlayerPoints(
       const psNorm = normalizeName(ps.name);
       if (psNorm === motmNorm || psNorm.includes(motmNorm) || motmNorm.includes(psNorm)) {
         motmBonus = 30;
-        console.log("MOTM bonus +30 -> " + ps.name);
+        console.log(`MOTM bonus +30 -> ${ps.name}`);
       }
     }
 
@@ -686,8 +718,8 @@ async function computePlayerPoints(
   }
 
   if (dryRun) {
-    console.log("[DRY RUN] Would upsert " + upserts.length + " player points");
-    if (upserts.length > 0) console.log("[DRY RUN] Sample:", JSON.stringify(upserts[0], null, 2));
+    console.log(`[DRY RUN] Would upsert ${upserts.length} player points`);
+    if (upserts.length > 0) console.log(`[DRY RUN] Sample:`, JSON.stringify(upserts[0], null, 2));
     return;
   }
 
@@ -778,6 +810,7 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
   bd.total = bd.starting_xi + bd.batting + bd.bowling + bd.fielding + bd.sr_bonus + bd.er_bonus + bd.milestone;
   return bd;
 }
+
 async function recalcUserTeamPoints(
   supabase: ReturnType<typeof createClient>,
   matchId: string,
@@ -826,8 +859,8 @@ async function recalcUserTeamPoints(
     }
 
     if (dryRun) {
-      console.log("[DRY RUN] Would update " + teamUpdates.length + " user teams");
-      for (const tu of teamUpdates) console.log("[DRY RUN]   " + tu.id + ": " + tu.total_points + " pts");
+      console.log(`[DRY RUN] Would update ${teamUpdates.length} user teams`);
+      for (const tu of teamUpdates) console.log(`[DRY RUN]   ${tu.id}: ${tu.total_points} pts`);
       return;
     }
 
