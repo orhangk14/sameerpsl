@@ -45,19 +45,27 @@ interface PointsBreakdown {
 
 const PSL_TEAM_KEYWORDS: Record<string, string[]> = {
   "Quetta": ["quetta", "gladiators", "qtg", "que", "glad"],
-  "Karachi": ["karachi", "kings", "krk", "kar"],
+  "Karachi": ["karachi", "krk", "kar"],
   "Lahore": ["lahore", "qalandars", "lhq", "lah", "qal"],
   "Islamabad": ["islamabad", "united", "isu", "isl"],
   "Peshawar": ["peshawar", "zalmi", "psz", "pes", "zal"],
   "Multan": ["multan", "sultans", "ms", "mul", "sul"],
-  "Rawalpindi": ["rawalpindi", "raiders", "pindiz", "rwp", "raw", "pin"],
-  "Hyderabad": ["hyderabad", "kingsmen", "hydk", "hyd", "king"],
+  "Rawalpindi": ["rawalpindi", "pindiz", "rwp", "raw", "pin"],
+  "Hyderabad": ["hyderabad", "kingsmen", "hydk", "hyd"],
 };
 
-function extractWinningTeam(statusText: string | undefined | null, teamA: string, teamB: string): string | null {
+function extractWinningTeam(statusText: string | undefined | null, teamA: string, teamB: string, teamAScore?: string | null, teamBScore?: string | null): string | null {
+  // PRIMARY: Compare scores (works for 99% of T20 matches)
+  if (teamAScore && teamBScore) {
+    const aRuns = parseInt(teamAScore.split('/')[0]) || 0;
+    const bRuns = parseInt(teamBScore.split('/')[0]) || 0;
+    if (bRuns > aRuns) return teamB;
+    if (aRuns > bRuns) return teamA;
+  }
+
+  // FALLBACK: Parse status text
   if (!statusText) return null;
   const s = statusText.toLowerCase();
-  // "won by" excludes toss results like "won the toss"
   if (!s.includes("won by") && !s.includes("beat")) return null;
 
   const winIdx = s.includes("won by") ? s.indexOf("won by") : s.indexOf("beat");
@@ -72,11 +80,6 @@ function extractWinningTeam(statusText: string | undefined | null, teamA: string
   }
   for (const word of tB.split(/\s+/)) {
     if (word.length >= 4 && s.includes(word) && s.indexOf(word) < winIdx) return teamB;
-  }
-
-  for (const [key, keywords] of Object.entries(PSL_TEAM_KEYWORDS)) {
-    if (tA.includes(key.toLowerCase()) && keywords.some(kw => s.includes(kw) && s.indexOf(kw) < winIdx)) return teamA;
-    if (tB.includes(key.toLowerCase()) && keywords.some(kw => s.includes(kw) && s.indexOf(kw) < winIdx)) return teamB;
   }
 
   return null;
@@ -432,11 +435,17 @@ async function fetchScoresPage(
 
     let winningTeam: string | null = null;
     if (matchEnded) {
-      const statusRegex = /\\*"?status\\*"?\s*:\s*\\*"?([^"\\]{5,80})\\*"?/g;
-      let sm;
-      while ((sm = statusRegex.exec(html)) !== null) {
-        const result = extractWinningTeam(sm[1], match.team_a, match.team_b);
-        if (result) { winningTeam = result; break; }
+      // Try score comparison first
+      winningTeam = extractWinningTeam(null, match.team_a, match.team_b, teamAScore, teamBScore);
+      
+      // Fallback to status text only if scores are tied
+      if (!winningTeam) {
+        const statusRegex = /\\*"?status\\*"?\s*:\s*\\*"?([^"\\]{5,80})\\*"?/g;
+        let sm;
+        while ((sm = statusRegex.exec(html)) !== null) {
+          const result = extractWinningTeam(sm[1], match.team_a, match.team_b);
+          if (result) { winningTeam = result; break; }
+        }
       }
     }
 
