@@ -57,22 +57,28 @@ const PSL_TEAM_KEYWORDS: Record<string, string[]> = {
 function extractWinningTeam(statusText: string | undefined | null, teamA: string, teamB: string): string | null {
   if (!statusText) return null;
   const s = statusText.toLowerCase();
-  if (!s.includes("won") && !s.includes("beat")) return null;
-  const winIdx = Math.max(s.indexOf("won"), s.indexOf("beat"));
+  // "won by" excludes toss results like "won the toss"
+  if (!s.includes("won by") && !s.includes("beat")) return null;
+
+  const winIdx = s.includes("won by") ? s.indexOf("won by") : s.indexOf("beat");
   const tA = teamA.toLowerCase();
   const tB = teamB.toLowerCase();
+
   if (s.includes(tA) && s.indexOf(tA) < winIdx) return teamA;
   if (s.includes(tB) && s.indexOf(tB) < winIdx) return teamB;
+
   for (const word of tA.split(/\s+/)) {
     if (word.length >= 4 && s.includes(word) && s.indexOf(word) < winIdx) return teamA;
   }
   for (const word of tB.split(/\s+/)) {
     if (word.length >= 4 && s.includes(word) && s.indexOf(word) < winIdx) return teamB;
   }
+
   for (const [key, keywords] of Object.entries(PSL_TEAM_KEYWORDS)) {
     if (tA.includes(key.toLowerCase()) && keywords.some(kw => s.includes(kw) && s.indexOf(kw) < winIdx)) return teamA;
     if (tB.includes(key.toLowerCase()) && keywords.some(kw => s.includes(kw) && s.indexOf(kw) < winIdx)) return teamB;
   }
+
   return null;
 }
 
