@@ -303,8 +303,8 @@ Deno.serve(async (req) => {
 // ─── Scoped state detection ─────────────────────────────────────────────────
 
 function isScopedState(html: string, teamA: string, teamB: string, state: string): boolean {
-  const slugA = teamA.split(" ")[0].toLowerCase();
-  const slugB = teamB.split(" ")[0].toLowerCase();
+  const slugA = teamA.toLowerCase().split(" ");
+  const slugB = teamB.toLowerCase().split(" ");
   const safeState = state.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const regex = new RegExp(safeState, "g");
   let m;
@@ -312,7 +312,10 @@ function isScopedState(html: string, teamA: string, teamB: string, state: string
     const start = Math.max(0, m.index - 500);
     const end = Math.min(html.length, m.index + 500);
     const context = html.substring(start, end).toLowerCase();
-    if (context.includes(slugA) && context.includes(slugB)) return true;
+    // Require BOTH words of at least one team name to be present
+    const hasA = slugA.every(w => context.includes(w));
+    const hasB = slugB.every(w => context.includes(w));
+    if (hasA && hasB) return true;
   }
   return false;
 }
