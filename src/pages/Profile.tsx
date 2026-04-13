@@ -2,7 +2,7 @@ import { Layout } from '@/components/Layout';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, Trophy, Target, Calendar, LogOut, Pencil } from 'lucide-react';
+import { User, Trophy, Target, Calendar, LogOut, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -17,6 +17,7 @@ const Profile = () => {
   const [editOpen, setEditOpen] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [saving, setSaving] = useState(false);
+  const [entriesOpen, setEntriesOpen] = useState(false);
 
   const { data: profile } = useQuery({
     queryKey: ['profile', user?.id],
@@ -41,6 +42,30 @@ const Profile = () => {
         .eq('user_id', user!.id);
       if (error) throw error;
       return count || 0;
+    },
+    enabled: !!user,
+  });
+
+  const { data: entries = [] } = useQuery({
+    queryKey: ['my-entries', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('user_teams')
+        .select(`
+          id,
+          total_points,
+          match_id,
+          matches (
+            team_a,
+            team_b,
+            status,
+            match_date
+          )
+        `)
+        .eq('user_id', user!.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
     },
     enabled: !!user,
   });
@@ -85,6 +110,26 @@ const Profile = () => {
     navigate('/auth');
   };
 
+  const statusColor = (status: string) => {
+    if (status === 'live') return 'text-green-400';
+    if (status === 'completed') return 'text-muted-foreground';
+    return 'text-yellow-400';
+  };
+
+  const statusLabel = (status: string) => {
+    if (status === 'live') return '● LIVE';
+    if (status === 'completed') return 'Completed';
+    return 'Upcoming';
+  };
+
+  const sortedEntries = [...entries].sort((a: any, b: any) => {
+    const order: Record<string, number> = { live: 0, upcoming: 1, completed: 2 };
+    const aOrder = order[a.matches?.status] ?? 3;
+    const bOrder = order[b.matches?.status] ?? 3;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return new Date(b.matches?.match_date || 0).getTime() - new Date(a.matches?.match_date || 0).getTime();
+  });
+
   return (
     <Layout>
       <div className="space-y-6 pt-4">
@@ -103,17 +148,59 @@ const Profile = () => {
 
         <div className="grid grid-cols-3 gap-3">
           {[
-            { icon: Trophy, label: 'Points', value: profile?.total_points || 0 },
-            { icon: Target, label: 'Matches', value: teamCount },
-            { icon: Calendar, label: 'Leagues', value: leagueCount },
-          ].map(({ icon: Icon, label, value }) => (
-            <div key={label} className="gradient-card rounded-lg border border-border p-3 text-center">
+            { icon: Trophy, label: 'Points', value: profile?.total_points || 0, onClick: undefined },
+            { icon: Target, label: 'My Entries', value: teamCount, onClick: () => setEntriesOpen(!entriesOpen) },
+            { icon: Calendar, label: 'Leagues', value: leagueCount, onClick: undefined },
+          ].map(({ icon: Icon, label, value, onClick }) => (
+            <div
+              key={label}
+              className={`gradient-card rounded-lg border border-border p-3 text-center ${onClick ? 'cursor-pointer hover:border-primary transition-colors' : ''}`}
+              onClick={onClick}
+            >
               <Icon className="w-5 h-5 text-primary mx-auto mb-1" />
               <p className="font-display font-black text-lg text-foreground">{value}</p>
-              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                {label}
+                {onClick && (entriesOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+              </p>
             </div>
           ))}
         </div>
+
+        {entriesOpen && (
+          <div className="gradient-card rounded-lg border border-border p-4 space-y-2">
+            <h2 className="font-display font-bold text-foreground mb-2">My Entries</h2>
+            {sortedEntries.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No entries yet</p>
+            ) : (
+              sortedEntries.map((entry: any) => (
+                <div
+                  key={entry.id}
+                  className="flex items-center justify-between p-3 rounded-lg bg-background/50 border border-border cursor-pointer hover:border-primary transition-colors"
+                  onClick={() => navigate(`/match/${entry.match_id}`)}
+                >
+                  <div>
+                    <p className="font-display font-bold text-sm text-foreground">
+                      {entry.matches?.team_a} vs {entry.matches?.team_b}
+                    </p>
+                    <p className={`text-xs font-medium ${statusColor(entry.matches?.status)}`}>
+                      {statusLabel(entry.matches?.status)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    {entry.matches?.status === 'upcoming' ? (
+                      <span className="text-xs font-display font-bold text-yellow-400">Entered</span>
+                    ) : (
+                      <p className="font-display font-black text-lg text-secondary">
+                        {entry.total_points?.toFixed(1) || '0.0'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
 
         <div className="gradient-card rounded-lg border border-border p-4">
           <h2 className="font-display font-bold text-foreground mb-3">Scoring Guide</h2>
