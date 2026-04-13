@@ -212,7 +212,13 @@ Deno.serve(async (req) => {
                 .select("total_points")
                 .eq("user_id", ut.user_id);
               const totalProfile = (allTeams || []).reduce((s: number, t: any) => s + (t.total_points || 0), 0);
-              await supabase.from("profiles").update({ total_points: totalProfile }).eq("user_id", ut.user_id);
+              const { data: prof } = await supabase
+                .from("profiles")
+                .select("old_app_points")
+                .eq("user_id", ut.user_id)
+                .single();
+              const oldPts = prof?.old_app_points || 0;
+              await supabase.from("profiles").update({ total_points: totalProfile + oldPts }).eq("user_id", ut.user_id);
             }
           }
         }
@@ -814,7 +820,15 @@ async function recalcUserTeamPoints(
 
     for (const [userId, total] of profileTotals) {
       if (!dryRun) {
-        await supabase.from("profiles").update({ total_points: total }).eq("user_id", userId);
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("old_app_points")
+          .eq("user_id", userId)
+          .single();
+        const oldPts = prof?.old_app_points || 0;
+        await supabase.from("profiles")
+          .update({ total_points: total + oldPts })
+          .eq("user_id", userId);
       }
     }
   } catch (err) {
