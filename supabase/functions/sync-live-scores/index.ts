@@ -209,9 +209,23 @@ Deno.serve(async (req) => {
             for (const ut of affectedTeams) {
               const { data: allTeams } = await supabase
                 .from("user_teams")
-                .select("total_points")
+                .select("total_points, match_id")
                 .eq("user_id", ut.user_id);
-              const totalProfile = (allTeams || []).reduce((s: number, t: any) => s + (t.total_points || 0), 0);
+
+              const teamMatchIds = (allTeams || []).map((t: any) => t.match_id);
+              const { data: mDates } = await supabase
+                .from("matches")
+                .select("id, match_date")
+                .in("id", teamMatchIds);
+
+              const mDateMap = new Map((mDates || []).map((m: any) => [m.id, m.match_date]));
+              const cutoff = new Date("2026-04-13T00:00:00Z").getTime();
+
+              const totalProfile = (allTeams || []).reduce((s: number, t: any) => {
+                const mDate = new Date(mDateMap.get(t.match_id) || 0).getTime();
+                return mDate >= cutoff ? s + (t.total_points || 0) : s;
+              }, 0);
+
               const { data: prof } = await supabase
                 .from("profiles")
                 .select("old_app_points")
@@ -806,16 +820,29 @@ async function recalcUserTeamPoints(
       }
     }
 
-    // BATCH: single query for all user totals
+    // BATCH: only sum user_teams from match 22 onwards (Apr 13+)
     const userIds = [...new Set(userTeams.map((ut: any) => ut.user_id))];
     const { data: allUserTeams } = await supabase
       .from("user_teams")
-      .select("user_id, total_points")
+      .select("user_id, total_points, match_id")
       .in("user_id", userIds);
+
+    // Get match dates to filter
+    const matchIds = [...new Set((allUserTeams || []).map((ut: any) => ut.match_id))];
+    const { data: matchDates } = await supabase
+      .from("matches")
+      .select("id, match_date")
+      .in("id", matchIds);
+
+    const matchDateMap = new Map((matchDates || []).map((m: any) => [m.id, m.match_date]));
+    const cutoff = new Date("2026-04-13T00:00:00Z").getTime();
 
     const profileTotals = new Map<string, number>();
     for (const ut of allUserTeams || []) {
-      profileTotals.set(ut.user_id, (profileTotals.get(ut.user_id) || 0) + (ut.total_points || 0));
+      const mDate = new Date(matchDateMap.get(ut.match_id) || 0).getTime();
+      if (mDate >= cutoff) {
+        profileTotals.set(ut.user_id, (profileTotals.get(ut.user_id) || 0) + (ut.total_points || 0));
+      }
     }
 
     for (const [userId, total] of profileTotals) {
@@ -835,6 +862,8 @@ async function recalcUserTeamPoints(
     console.error("Error recalculating user team points:", matchId, err);
   }
 }
+
+// ─── Utilities ──────────────────────────────────────────────────────────────
 
 // ─── Utilities ──────────────────────────────────────────────────────────────
 
