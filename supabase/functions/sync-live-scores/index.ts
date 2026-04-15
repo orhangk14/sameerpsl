@@ -305,6 +305,9 @@ Deno.serve(async (req) => {
               if (fullScorecard.teamAScore) completionUpdate.team_a_score = fullScorecard.teamAScore;
               if (fullScorecard.teamBScore) completionUpdate.team_b_score = fullScorecard.teamBScore;
               await supabase.from("matches").update(completionUpdate).eq("id", match.id);
+
+              // ─── Penalty for missing users (lowest - 30) ─────────────
+              await applyMissingTeamPenalty(supabase, match.id);
             }
           }
         }
@@ -863,7 +866,112 @@ async function recalcUserTeamPoints(
   }
 }
 
-// ─── Utilities ──────────────────────────────────────────────────────────────
+// ─── Missing team penalty ───────────────────────────────────────────────────
+
+async function applyMissingTeamPenalty(
+  supabase: ReturnType<typeof createClient>,
+  matchId: string
+) {
+  try {
+    // Get all active users (anyone with old_app_points > 0)
+    const { data: activeUsers } = await supabase
+      .from("profiles")
+      .select("user_id")
+      .gt("old_app_points", 0);
+
+    if (!activeUsers?.length) return;
+
+    // Get users who already have a team for this match
+    const { data: existingTeams } = await supabase
+      .from("user_teams")
+      .select("user_id")
+      .eq("match_id", matchId);
+
+    const enteredUserIds = new Set((existingTeams || []).map((t: any) => t.user_id));
+
+    // Find who's missing
+    const missingUsers = activeUsers.filter((u: any) => !enteredUserIds.has(u.user_id));
+
+    if (!missingUsers.length) {
+      console.log("No missing users for penalty");
+      return;
+    }
+
+    // Get lowest score from this match
+    const { data: lowestResult } = await supabase
+      .from("user_teams")
+      .select("total_points")
+      .eq("match_id", matchId)
+      .order("total_points", { ascending: true })
+      .limit(1)
+      .single();
+
+    const lowestScore = lowestResult?.total_points || 0;
+    const penaltyScore = parseFloat((lowestScore - 30).toFixed(1));
+
+    console.log(`Penalty: lowest=${lowestScore}, penalty=${penaltyScore}, missing=${missingUsers.length} users`);
+
+      // Use a placeholder player ID for NOT NULL constraint
+      const { data: placeholderPlayer } = await supabase
+        .from("players")
+        .select("id")
+        .limit(1)
+        .single();
+      const placeholderId = placeholderPlayer?.id;
+      if (!placeholderId) {
+        console.error("No placeholder player found for penalty");
+        continue;
+      }
+
+      const { error } = await supabase.from("user_teams").insert({
+        user_id: user.user_id,
+        match_id: matchId,
+        total_points: penaltyScore,
+        captain_id: placeholderId,
+        vice_captain_id: placeholderId,
+      });
+
+      if (error) {
+        console.error(`Penalty insert failed for ${user.user_id}:`, error);
+        continue;
+      }
+
+      // Update profile total
+      const { data: allTeams } = await supabase
+        .from("user_teams")
+        .select("total_points, match_id")
+        .eq("user_id", user.user_id);
+
+      const { data: matchDates } = await supabase
+        .from("matches")
+        .select("id, match_date")
+        .in("id", (allTeams || []).map((t: any) => t.match_id));
+
+      const matchDateMap = new Map((matchDates || []).map((m: any) => [m.id, m.match_date]));
+      const cutoff = new Date("2026-04-13T00:00:00Z").getTime();
+
+      const newAppTotal = (allTeams || []).reduce((s: number, t: any) => {
+        const mDate = new Date(matchDateMap.get(t.match_id) || 0).getTime();
+        return mDate >= cutoff ? s + (t.total_points || 0) : s;
+      }, 0);
+
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("old_app_points")
+        .eq("user_id", user.user_id)
+        .single();
+      const oldPts = prof?.old_app_points || 0;
+
+      await supabase.from("profiles")
+        .update({ total_points: newAppTotal + oldPts })
+        .eq("user_id", user.user_id);
+
+      console.log(`Penalty applied: ${user.user_id} gets ${penaltyScore} for missed match`);
+    }
+  } catch (err) {
+    console.error("Error applying missing team penalty:", err);
+  }
+}
 
 // ─── Utilities ──────────────────────────────────────────────────────────────
 
