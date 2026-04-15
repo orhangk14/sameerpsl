@@ -911,18 +911,19 @@ async function applyMissingTeamPenalty(
 
     console.log(`Penalty: lowest=${lowestScore}, penalty=${penaltyScore}, missing=${missingUsers.length} users`);
 
-      // Use a placeholder player ID for NOT NULL constraint
-      const { data: placeholderPlayer } = await supabase
-        .from("players")
-        .select("id")
-        .limit(1)
-        .single();
-      const placeholderId = placeholderPlayer?.id;
-      if (!placeholderId) {
-        console.error("No placeholder player found for penalty");
-        continue;
-      }
+    // Get placeholder player ID once
+    const { data: placeholderPlayer } = await supabase
+      .from("players")
+      .select("id")
+      .limit(1)
+      .single();
+    const placeholderId = placeholderPlayer?.id;
+    if (!placeholderId) {
+      console.error("No placeholder player found for penalty");
+      return;
+    }
 
+    for (const user of missingUsers) {
       const { error } = await supabase.from("user_teams").insert({
         user_id: user.user_id,
         match_id: matchId,
