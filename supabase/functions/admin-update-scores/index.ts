@@ -6,7 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ADMIN_EMAILS = ["admin@psl.com", "sameer@psl.com", "samspamspamsam16@gmail.com","orhanghazikhan@gmail.com"];
+const ADMIN_EMAILS = ["admin@psl.com", "sameer@psl.com", "samspamspamsam16@gmail.com", "orhanghazikhan@gmail.com"];
 
 const PSL_TEAM_KEYWORDS: Record<string, string[]> = {
   "Quetta": ["quetta", "gladiators", "qtg"],
@@ -25,7 +25,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Verify the caller is an admin
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -38,7 +37,6 @@ Deno.serve(async (req) => {
     const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Use anon client to verify the user
     const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
     });
@@ -59,11 +57,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Use service role client for actual updates (bypasses RLS)
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const body = await req.json();
-    const { match_id, team_a_score, team_b_score, status, cricbuzz_match_id, espn_match_id, player_points, recalculate, reopen } = body;
+    const { match_id, team_a_score, team_b_score, status, cricbuzz_match_id, espn_match_id, player_points, recalculate } = body;
 
     if (!match_id) {
       return new Response(JSON.stringify({ error: "match_id required" }), {
@@ -72,7 +69,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── Recalculate mode: re-fetch scorecard from Cricbuzz and recompute all points ──
     if (recalculate) {
       const result = await recalculateFromSource(supabase, match_id);
       return new Response(
@@ -80,8 +76,7 @@ Deno.serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    // ── Manual update mode ──
-    // Update match scores
+
     const { error: matchError } = await supabase
       .from("matches")
       .update({
@@ -95,7 +90,6 @@ Deno.serve(async (req) => {
 
     if (matchError) throw matchError;
 
-    // Upsert player points
     if (player_points && Array.isArray(player_points)) {
       for (const pp of player_points) {
         await supabase.from("match_player_points").upsert(
@@ -109,7 +103,6 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Update players.points as SUM across all matches
       const playerIds = player_points.map((pp: any) => pp.player_id);
       for (const playerId of playerIds) {
         const { data: allPoints } = await supabase
@@ -121,7 +114,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Recalculate user team points for this match
     await recalcUserTeamPoints(supabase, match_id);
 
     return new Response(
@@ -143,7 +135,7 @@ Deno.serve(async (req) => {
 async function recalculateFromSource(supabase: any, matchId: string) {
   const { data: match } = await supabase
     .from("matches")
-    .select("id, team_a, team_b, cricbuzz_match_id, espn_match_id, status, winning_team")
+    .select("id, team_a, team_b, cricbuzz_match_id, status, winning_team")
     .eq("id", matchId)
     .single();
 
@@ -151,12 +143,11 @@ async function recalculateFromSource(supabase: any, matchId: string) {
 
   const cricbuzzId = match.cricbuzz_match_id;
   if (!cricbuzzId) {
-    return { success: false, error: "No cricbuzz_match_id set for this match. Set it first." };
+    return { success: false, error: "No cricbuzz_match_id set for this match." };
   }
 
   console.log(`Recalculating match ${matchId} from Cricbuzz ID ${cricbuzzId}`);
 
-  // Fetch scorecard page via DB http extension
   const { data: scHtml, error: scError } = await supabase.rpc("http_get_text", {
     target_url: `https://www.cricbuzz.com/live-cricket-scorecard/${cricbuzzId}`
   });
@@ -164,13 +155,9 @@ async function recalculateFromSource(supabase: any, matchId: string) {
     return { success: false, error: `Failed to fetch scorecard: ${scError?.message || 'empty response'}` };
   }
 
-  console.log(`Scorecard page: ${scHtml.length} chars`);
-
-  // Parse players from scorecard
   const players = parseScorecardPlayers(scHtml);
   console.log(`Parsed ${players.length} players from scorecard`);
 
-  // Extract winning team from live scores page
   let winningTeam = match.winning_team;
   let playerOfTheMatch: string | null = null;
 
@@ -179,27 +166,19 @@ async function recalculateFromSource(supabase: any, matchId: string) {
   });
 
   if (liveHtml) {
-    // Extract winning team
     if (!winningTeam) {
       const statusRegex = /\\?"status\\?":\s*\\?"([^"\\]+)\\?"/;
       const statusMatch = liveHtml.match(statusRegex);
       winningTeam = extractWinningTeam(statusMatch?.[1], match.team_a, match.team_b);
     }
-    // Extract MOTM
-    const motmRegex = const motmRegex = new RegExp('playersOfTheMatch\\\\?":\\s*\$$\\s*\\{[^}]*?\\\\?"name\\\\?":\\s*\\\\?"([^"\\\$$+)\\\\?"');\\?":\s*\[\s*\{[^}]*?\\?"name\\?":\s*\\?"([^"\\]+)\\?"/;
-    const motmMatch = liveHtml.match(motmRegex);
-    if (motmMatch) {
-      playerOfTheMatch = motmMatch[1];
-      console.log(`MOTM: ${playerOfTheMatch}`);
-    }
+    playerOfTheMatch = findMotmName(liveHtml);
+    if (playerOfTheMatch) console.log(`MOTM: ${playerOfTheMatch}`);
   }
 
-  // Update match with winning team
   const matchUpdate: any = { status: "completed" };
   if (winningTeam) matchUpdate.winning_team = winningTeam;
   await supabase.from("matches").update(matchUpdate).eq("id", matchId);
 
-  // Load alias map
   const aliasMap = new Map<string, string>();
   const { data: aliases } = await supabase.from("player_aliases").select("player_id, alias");
   if (aliases) {
@@ -208,7 +187,6 @@ async function recalculateFromSource(supabase: any, matchId: string) {
     }
   }
 
-  // Get all players from DB
   const { data: dbPlayers } = await supabase.from("players").select("id, name, team, external_id");
   if (!dbPlayers?.length) return { success: false, error: "No players in database" };
 
@@ -231,7 +209,6 @@ async function recalculateFromSource(supabase: any, matchId: string) {
     let winBonus = 0;
     let motmBonus = 0;
 
-    // +5 bonus for winning team players
     if (winningTeam && dbPlayer.team) {
       const playerTeam = dbPlayer.team.toLowerCase();
       const winTeam = winningTeam.toLowerCase();
@@ -241,13 +218,11 @@ async function recalculateFromSource(supabase: any, matchId: string) {
       }
     }
 
-    // +30 bonus for MOTM
     if (playerOfTheMatch) {
       const motmNorm = normalizeName(playerOfTheMatch);
       if (normalizedPs === motmNorm || normalizedPs.includes(motmNorm) || motmNorm.includes(normalizedPs)) {
         motmBonus = 30;
         motmBonusApplied++;
-        console.log(`MOTM bonus +30 applied to ${ps.name}`);
       }
     }
 
@@ -259,7 +234,6 @@ async function recalculateFromSource(supabase: any, matchId: string) {
       { onConflict: "match_id,player_id" }
     );
 
-    // Update global player points
     const { data: allMatchPoints } = await supabase
       .from("match_player_points")
       .select("points")
@@ -270,7 +244,6 @@ async function recalculateFromSource(supabase: any, matchId: string) {
     matched++;
   }
 
-  // Recalculate all user team points
   await recalcUserTeamPoints(supabase, matchId);
 
   return {
@@ -284,7 +257,41 @@ async function recalculateFromSource(supabase: any, matchId: string) {
   };
 }
 
-// ─── Scorecard Parser (same logic as sync-live-scores) ─────────────────────
+// ─── MOTM string parser (no regex, no bracket corruption) ───────────────────
+
+function findMotmName(html: string): string | null {
+  const marker = "playersOfTheMatch";
+  const pos = html.indexOf(marker);
+  if (pos === -1) return null;
+
+  const chunk = html.substring(pos, Math.min(html.length, pos + 2000));
+  let searchFrom = 0;
+  while (searchFrom < chunk.length) {
+    const namePos = chunk.indexOf("name", searchFrom);
+    if (namePos === -1) break;
+    const colonPos = chunk.indexOf(":", namePos + 4);
+    if (colonPos === -1) break;
+
+    let start = colonPos + 1;
+    while (start < chunk.length) {
+      const ch = chunk.charAt(start);
+      if (ch !== " " && ch !== '"' && ch !== "\\" && ch !== "\n" && ch !== "\t") break;
+      start++;
+    }
+    let end = start;
+    while (end < chunk.length) {
+      const ch = chunk.charAt(end);
+      if (ch === '"' || ch === "\\" || ch === "," || ch === "}") break;
+      end++;
+    }
+    const name = chunk.substring(start, end).trim();
+    if (name.length > 2) return name;
+    searchFrom = end;
+  }
+  return null;
+}
+
+// ─── Scorecard Parser ──────────────────────────────────────────────────────
 
 interface PlayerStats {
   name: string;
@@ -301,7 +308,6 @@ interface PlayerStats {
   directRunOuts?: number;
   indirectRunOuts?: number;
   stumpings?: number;
-  runOuts?: number;
 }
 
 function parseScorecardPlayers(html: string): PlayerStats[] {
@@ -390,31 +396,34 @@ function extractFieldingFromOutDesc(players: PlayerStats[], outDesc: string) {
 function extractWinningTeam(statusText: string | undefined | null, teamA: string, teamB: string): string | null {
   if (!statusText) return null;
   const s = statusText.toLowerCase();
-  if (s.includes("won") || s.includes("beat")) {
-    const tA = teamA.toLowerCase();
-    const tB = teamB.toLowerCase();
-    if (s.includes(tA)) return teamA;
-    if (s.includes(tB)) return teamB;
-    // Check each word (handles "Islamabad" matching "Islamabad United")
-    const winIdx = Math.max(s.indexOf("won"), s.indexOf("beat"));
-    for (const word of tA.split(/\s+/)) {
-      if (word.length >= 4 && s.includes(word) && s.indexOf(word) < winIdx) return teamA;
+  if (!s.includes("won") && !s.includes("beat")) return null;
+
+  const winIdx = Math.max(s.indexOf("won"), s.indexOf("beat"));
+  const tA = teamA.toLowerCase();
+  const tB = teamB.toLowerCase();
+
+  if (s.includes(tA) && s.indexOf(tA) < winIdx) return teamA;
+  if (s.includes(tB) && s.indexOf(tB) < winIdx) return teamB;
+
+  for (const word of tA.split(/\s+/)) {
+    if (word.length >= 4 && s.includes(word) && s.indexOf(word) < winIdx) return teamA;
+  }
+  for (const word of tB.split(/\s+/)) {
+    if (word.length >= 4 && s.includes(word) && s.indexOf(word) < winIdx) return teamB;
+  }
+
+  for (const [key, keywords] of Object.entries(PSL_TEAM_KEYWORDS)) {
+    if (tA.includes(key.toLowerCase())) {
+      if (keywords.some(kw => s.includes(kw) && s.indexOf(kw) < winIdx)) return teamA;
     }
-    for (const word of tB.split(/\s+/)) {
-      if (word.length >= 4 && s.includes(word) && s.indexOf(word) < winIdx) return teamB;
-    }
-    // PSL keywords
-    for (const [key, keywords] of Object.entries(PSL_TEAM_KEYWORDS)) {
-      if (tA.includes(key.toLowerCase())) {
-        if (keywords.some(kw => s.includes(kw) && s.indexOf(kw) < winIdx)) return teamA;
-      }
-      if (tB.includes(key.toLowerCase())) {
-        if (keywords.some(kw => s.includes(kw) && s.indexOf(kw) < winIdx)) return teamB;
-      }
+    if (tB.includes(key.toLowerCase())) {
+      if (keywords.some(kw => s.includes(kw) && s.indexOf(kw) < winIdx)) return teamB;
     }
   }
   return null;
 }
+
+// ─── Points Calculation ────────────────────────────────────────────────────
 
 interface PointsBreakdown {
   starting_xi: number;
@@ -427,10 +436,6 @@ interface PointsBreakdown {
   total: number;
 }
 
-function calculatePoints(ps: PlayerStats): number {
-  return calculatePointsWithBreakdown(ps).total;
-}
-
 function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
   const bd: PointsBreakdown = { starting_xi: 4, batting: 0, bowling: 0, fielding: 0, sr_bonus: 0, er_bonus: 0, milestone: 0, total: 0 };
 
@@ -441,18 +446,19 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
 
   if (runs > 0 || ps.out !== undefined) {
     bd.batting += runs + fours * 4 + sixes * 6;
-    const sr = (runs / Math.max(balls, 1)) * 100;
     if (balls >= 10) {
-      if (sr > 170) bd.sr_bonus += 6;
-      else if (sr >= 150) bd.sr_bonus += 4;
-      else if (sr >= 130) bd.sr_bonus += 2;
-      else if (sr < 50) bd.sr_bonus -= 6;
-      else if (sr < 60) bd.sr_bonus -= 4;
-      else if (sr < 70) bd.sr_bonus -= 2;
+      const sr = (runs / Math.max(balls, 1)) * 100;
+      if (sr > 170) bd.sr_bonus = 6;
+      else if (sr >= 150) bd.sr_bonus = 4;
+      else if (sr >= 130) bd.sr_bonus = 2;
+      else if (sr < 50) bd.sr_bonus = -6;
+      else if (sr < 60) bd.sr_bonus = -4;
+      else if (sr < 70) bd.sr_bonus = -2;
     }
     if (runs >= 25) bd.milestone += 8;
     if (runs >= 50) bd.milestone += 8;
     if (runs >= 100) bd.milestone += 16;
+    if (runs === 0 && ps.out) bd.batting -= 2;
   }
 
   const wickets = ps.wickets || 0;
@@ -460,66 +466,31 @@ function calculatePointsWithBreakdown(ps: PlayerStats): PointsBreakdown {
   const runsConceded = ps.runsConceded || 0;
 
   if (wickets > 0 || overs > 0) {
-    bd.bowling += wickets * 30;
+    bd.bowling += wickets * 30 + (ps.maidens || 0) * 12;
     if (wickets >= 3) bd.milestone += 4;
     if (wickets >= 4) bd.milestone += 8;
     if (wickets >= 5) bd.milestone += 16;
     if (overs >= 2) {
       const economy = runsConceded / overs;
-      if (economy < 5) bd.er_bonus += 6;
-      else if (economy < 6) bd.er_bonus += 4;
-      else if (economy < 7) bd.er_bonus += 2;
-      else if (economy > 12) bd.er_bonus -= 6;
-      else if (economy > 11) bd.er_bonus -= 4;
-      else if (economy > 10) bd.er_bonus -= 2;
+      if (economy < 5) bd.er_bonus = 6;
+      else if (economy < 6) bd.er_bonus = 4;
+      else if (economy < 7) bd.er_bonus = 2;
+      else if (economy > 12) bd.er_bonus = -6;
+      else if (economy > 11) bd.er_bonus = -4;
+      else if (economy > 10) bd.er_bonus = -2;
     }
-    bd.bowling += (ps.maidens || 0) * 12;
   }
 
   bd.fielding += (ps.catches || 0) * 8;
   bd.fielding += (ps.directRunOuts || 0) * 12;
   bd.fielding += (ps.indirectRunOuts || 0) * 6;
-  bd.fielding += (ps.runOuts || 0) * 12;
   bd.fielding += (ps.stumpings || 0) * 12;
 
   bd.total = bd.starting_xi + bd.batting + bd.bowling + bd.fielding + bd.sr_bonus + bd.er_bonus + bd.milestone;
   return bd;
 }
 
-// ─── Utilities ──────────────────────────────────────────────────────────────
-
-function normalizeName(name: string): string {
-  return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z\s]/g, "").trim();
-}
-
-function mergePlayer(players: PlayerStats[], incoming: PlayerStats) {
-  const normalized = normalizeName(incoming.name);
-  const existing = players.find(p => normalizeName(p.name) === normalized);
-  if (existing) {
-    if (incoming.runs !== undefined) {
-      existing.runs = (existing.runs || 0) + (incoming.runs || 0);
-      existing.balls = (existing.balls || 0) + (incoming.balls || 0);
-      existing.fours = (existing.fours || 0) + (incoming.fours || 0);
-      existing.sixes = (existing.sixes || 0) + (incoming.sixes || 0);
-      if (incoming.out) existing.out = true;
-    }
-    if (incoming.wickets !== undefined || incoming.oversBowled !== undefined) {
-      existing.wickets = (existing.wickets || 0) + (incoming.wickets || 0);
-      existing.oversBowled = (existing.oversBowled || 0) + (incoming.oversBowled || 0);
-      existing.runsConceded = (existing.runsConceded || 0) + (incoming.runsConceded || 0);
-      existing.maidens = (existing.maidens || 0) + (incoming.maidens || 0);
-    }
-    if (incoming.catches !== undefined) existing.catches = (existing.catches || 0) + (incoming.catches || 0);
-    if (incoming.directRunOuts !== undefined) existing.directRunOuts = (existing.directRunOuts || 0) + (incoming.directRunOuts || 0);
-    if (incoming.indirectRunOuts !== undefined) existing.indirectRunOuts = (existing.indirectRunOuts || 0) + (incoming.indirectRunOuts || 0);
-    if (incoming.runOuts !== undefined) existing.runOuts = (existing.runOuts || 0) + (incoming.runOuts || 0);
-    if (incoming.stumpings !== undefined) existing.stumpings = (existing.stumpings || 0) + (incoming.stumpings || 0);
-  } else {
-    players.push({ ...incoming });
-  }
-}
-
-// ─── Recalculate User Team Points ──────────────────────────────────────────
+// ─── User Team Recalculation ───────────────────────────────────────────────
 
 async function recalcUserTeamPoints(supabase: any, matchId: string) {
   const { data: userTeams } = await supabase
@@ -556,14 +527,67 @@ async function recalcUserTeamPoints(supabase: any, matchId: string) {
     await supabase.from("user_teams").update({ total_points: parseFloat(total.toFixed(1)) }).eq("id", ut.id);
   }
 
-  // Update profile total points
+  // Update profile totals with cutoff + old_app_points
   const userIds = [...new Set(userTeams.map((ut: any) => ut.user_id))];
   for (const userId of userIds) {
     const { data: allTeams } = await supabase
       .from("user_teams")
-      .select("total_points")
+      .select("total_points, match_id")
       .eq("user_id", userId);
-    const totalProfile = (allTeams || []).reduce((s: number, t: any) => s + (t.total_points || 0), 0);
-    await supabase.from("profiles").update({ total_points: totalProfile }).eq("user_id", userId);
+
+    const teamMatchIds = (allTeams || []).map((t: any) => t.match_id);
+    const { data: mDates } = await supabase
+      .from("matches")
+      .select("id, match_date")
+      .in("id", teamMatchIds);
+
+    const mDateMap = new Map((mDates || []).map((m: any) => [m.id, m.match_date]));
+    const cutoff = new Date("2026-04-13T00:00:00Z").getTime();
+
+    const totalProfile = (allTeams || []).reduce((s: number, t: any) => {
+      const mDate = new Date(mDateMap.get(t.match_id) || 0).getTime();
+      return mDate >= cutoff ? s + (t.total_points || 0) : s;
+    }, 0);
+
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("old_app_points")
+      .eq("user_id", userId)
+      .single();
+    const oldPts = prof?.old_app_points || 0;
+
+    await supabase.from("profiles").update({ total_points: totalProfile + oldPts }).eq("user_id", userId);
+  }
+}
+
+// ─── Utilities ──────────────────────────────────────────────────────────────
+
+function normalizeName(name: string): string {
+  return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z\s]/g, "").trim();
+}
+
+function mergePlayer(players: PlayerStats[], incoming: PlayerStats) {
+  const normalized = normalizeName(incoming.name);
+  const existing = players.find(p => normalizeName(p.name) === normalized);
+  if (existing) {
+    if (incoming.runs !== undefined) {
+      existing.runs = (existing.runs || 0) + (incoming.runs || 0);
+      existing.balls = (existing.balls || 0) + (incoming.balls || 0);
+      existing.fours = (existing.fours || 0) + (incoming.fours || 0);
+      existing.sixes = (existing.sixes || 0) + (incoming.sixes || 0);
+      if (incoming.out) existing.out = true;
+    }
+    if (incoming.wickets !== undefined || incoming.oversBowled !== undefined) {
+      existing.wickets = (existing.wickets || 0) + (incoming.wickets || 0);
+      existing.oversBowled = (existing.oversBowled || 0) + (incoming.oversBowled || 0);
+      existing.runsConceded = (existing.runsConceded || 0) + (incoming.runsConceded || 0);
+      existing.maidens = (existing.maidens || 0) + (incoming.maidens || 0);
+    }
+    if (incoming.catches !== undefined) existing.catches = (existing.catches || 0) + (incoming.catches || 0);
+    if (incoming.directRunOuts !== undefined) existing.directRunOuts = (existing.directRunOuts || 0) + (incoming.directRunOuts || 0);
+    if (incoming.indirectRunOuts !== undefined) existing.indirectRunOuts = (existing.indirectRunOuts || 0) + (incoming.indirectRunOuts || 0);
+    if (incoming.stumpings !== undefined) existing.stumpings = (existing.stumpings || 0) + (incoming.stumpings || 0);
+  } else {
+    players.push({ ...incoming });
   }
 }
