@@ -335,8 +335,8 @@ Deno.serve(async (req) => {
 // ─── Scoped state detection ─────────────────────────────────────────────────
 
 function isScopedState(html: string, teamA: string, teamB: string, state: string): boolean {
-  const fullA = teamA.toLowerCase();
-  const fullB = teamB.toLowerCase();
+  const fullA = teamA.split(' ')[0].toLowerCase();
+  const fullB = teamB.split(' ')[0].toLowerCase();
   const safeState = state.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const regex = new RegExp(safeState, "g");
   let m;
