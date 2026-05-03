@@ -75,14 +75,21 @@ const Leaderboard = () => {
 
   const { data: overallEntries = [], isLoading: overallLoading } = useQuery({
     queryKey: ['leaderboard-overall'],
+   // AFTER:
     queryFn: async () => {
       const { data, error } = await supabase
         .from('profiles')
-        .select('username, total_points')
-        .order('total_points', { ascending: false })
+        .select('username, old_app_points')
         .limit(50);
       if (error) throw error;
-      return data.map((e, i) => ({ rank: i + 1, username: e.username, points: e.total_points }));
+      const sorted = data
+        .map(e => ({ 
+          username: e.username, 
+          points: e.old_app_points || 0
+        }))
+        .filter(e => e.points > 0)
+        .sort((a, b) => b.points - a.points);
+      return sorted.map((e, i) => ({ rank: i + 1, username: e.username, points: e.points }));
     },
     staleTime: 10000,
     refetchInterval: 20000,
