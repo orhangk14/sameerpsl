@@ -305,7 +305,11 @@ const Profile = () => {
                     <h4 className="font-display font-semibold mb-2 text-secondary text-sm">Batting</h4>
                     <div className="space-y-1 text-xs text-muted-foreground">
                       <div className="flex justify-between"><span>Run</span><span className="font-display font-bold text-secondary">+1</span></div>
-                      <p className="text-[10px] italic opacity-60">No bonuses for boundaries, milestones, or strike rate</p>
+                      <div className="flex justify-between"><span>50 runs</span><span className="font-display font-bold text-secondary">+8</span></div>
+                      <div className="flex justify-between"><span>100 runs</span><span className="font-display font-bold text-secondary">+20</span></div>
+                      <div className="flex justify-between"><span>150 runs</span><span className="font-display font-bold text-secondary">+32</span></div>
+                      <div className="flex justify-between"><span>200 runs</span><span className="font-display font-bold text-secondary">+50</span></div>
+                      <p className="text-[10px] italic opacity-60">No bonuses for boundaries or strike rate</p>
                     </div>
                   </div>
 
@@ -313,7 +317,10 @@ const Profile = () => {
                     <h4 className="font-display font-semibold mb-2 text-secondary text-sm">Bowling</h4>
                     <div className="space-y-1 text-xs text-muted-foreground">
                       <div className="flex justify-between"><span>Wicket</span><span className="font-display font-bold text-secondary">+25</span></div>
-                      <p className="text-[10px] italic opacity-60">No bonuses for maidens, wicket hauls, or economy rate</p>
+                      <div className="flex justify-between"><span>4 wickets</span><span className="font-display font-bold text-secondary">+12</span></div>
+                      <div className="flex justify-between"><span>5 wickets</span><span className="font-display font-bold text-secondary">+30</span></div>
+                      <div className="flex justify-between"><span>10 wickets (match)</span><span className="font-display font-bold text-secondary">+50</span></div>
+                      <p className="text-[10px] italic opacity-60">No bonuses for maidens or economy rate</p>
                     </div>
                   </div>
 

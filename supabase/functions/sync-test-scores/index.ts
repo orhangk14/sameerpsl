@@ -235,25 +235,40 @@ interface TestPointsBreakdown {
   batting: number;
   bowling: number;
   fielding: number;
+  milestone: number;  // ADD THIS
   total: number;
 }
-
 function calculateTestPoints(ps: PlayerStats): TestPointsBreakdown {
   const bd: TestPointsBreakdown = {
     starting_xi: 4,
     batting: ps.runs || 0,  // 1 point per run
     bowling: (ps.wickets || 0) * 25,  // 25 per wicket
     fielding: 0,
+    milestone: 0,  // ADD THIS
     total: 0,
   };
 
+  // Batting milestones
+  const runs = ps.runs || 0;
+  if (runs >= 50) bd.milestone += 8;
+  if (runs >= 100) bd.milestone += 20;  // additive
+  if (runs >= 150) bd.milestone += 32;  // additive
+  if (runs >= 200) bd.milestone += 50;  // additive
+
+  // Bowling milestones
+  const wickets = ps.wickets || 0;
+  if (wickets >= 4) bd.milestone += 12;
+  if (wickets >= 5) bd.milestone += 30;  // additive
+  if (wickets >= 10) bd.milestone += 50;  // additive
+
+  // Fielding
   bd.fielding += (ps.catches || 0) * 8;
   bd.fielding += (ps.directRunOuts || 0) * 12;
   bd.fielding += (ps.indirectRunOuts || 0) * 6;
   bd.fielding += (ps.runOuts || 0) * 12;
   bd.fielding += (ps.stumpings || 0) * 12;
 
-  bd.total = bd.starting_xi + bd.batting + bd.bowling + bd.fielding;
+  bd.total = bd.starting_xi + bd.batting + bd.bowling + bd.fielding + bd.milestone;
   return bd;
 }
 
