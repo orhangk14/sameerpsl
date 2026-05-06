@@ -18,6 +18,9 @@ const TEAM_ABBR: Record<string, string> = {
   'Multan Sultans': 'MS', 'MS': 'MS',
   'Hyderabad Kingsmen': 'HK', 'HK': 'HK',
   'Rawalpindi Pindiz': 'RP', 'RP': 'RP',
+  // International
+  'Pakistan': 'PAK', 'PAK': 'PAK',
+  'Bangladesh': 'BAN', 'BAN': 'BAN',
 };
 
 const TEAM_COLORS: Record<string, string> = {
@@ -29,6 +32,9 @@ const TEAM_COLORS: Record<string, string> = {
   'MS': 'from-teal-700 to-teal-900',          'Multan Sultans': 'from-teal-700 to-teal-900',
   'HK': 'from-amber-700 to-stone-800',        'Hyderabad Kingsmen': 'from-amber-700 to-stone-800',
   'RP': 'from-orange-400 to-orange-600',      'Rawalpindi Pindiz': 'from-orange-400 to-orange-600',
+  // International
+  'PAK': 'from-green-800 to-green-600',       'Pakistan': 'from-green-800 to-green-600',
+  'BAN': 'from-green-700 to-red-600',         'Bangladesh': 'from-green-700 to-red-600',
 };
 
 const TEAM_LOGOS: Record<string, string> = {
@@ -47,6 +53,8 @@ const TEAM_FULL_NAMES: Record<string, string> = {
   'IU': 'Islamabad United', 'PZ': 'Peshawar Zalmi',
   'QG': 'Quetta Gladiators', 'MS': 'Multan Sultans',
   'HK': 'Hyderabad Kingsmen', 'RP': 'Rawalpindi Pindiz',
+  // International
+  'PAK': 'Pakistan', 'BAN': 'Bangladesh',
 };
 
 interface TeamLogoProps {
